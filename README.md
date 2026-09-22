@@ -1,2 +1,4 @@
 # Pixel-Campus
-추후 추가.
+
+README.md, 라이선스, 기획 내용 추후 추가
+
