@@ -4,7 +4,7 @@ Unity에서 SmartLEAD 알림을 과목별로 감지하고, 과목마다 색이 �
 
 ## 실행
 
-1. Unity Hub에서 **Unity 2022.3.62f3**로 이 프로젝트를 엽니다.
+1. Unity Hub에서 **Unity 6.3 LTS (6000.3.26f1)**로 이 프로젝트를 엽니다.
 2. Windows에 WebView2 Runtime이 설치되어 있어야 합니다.
 3. `Assets/Scenes/NotificationDemo.unity`를 열고 Play를 누릅니다.
 4. 학교 로그인 페이지에서 직접 로그인합니다. 필요하면 **학교 로그인 / 계정 확인** 버튼을 누릅니다.

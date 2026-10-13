@@ -1,11 +1,10 @@
 {
   "dependencies": {
-    "com.unity.collab-proxy": "2.12.4",
-    "com.unity.feature.development": "1.0.1",
-    "com.unity.textmeshpro": "3.0.7",
-    "com.unity.timeline": "1.7.7",
-    "com.unity.ugui": "1.0.0",
-    "com.unity.visualscripting": "1.9.4",
+    "com.unity.collab-proxy": "2.13.6",
+    "com.unity.feature.development": "1.0.2",
+    "com.unity.timeline": "1.8.13",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.visualscripting": "1.9.12",
     "com.zjxps2007.unity-bridge-connector": "https://github.com/zjxps2007/UnityBridge.git?path=/unity-bridge-connector#main",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",
