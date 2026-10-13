@@ -38,7 +38,7 @@ namespace WebNotifications
         private bool visible = true;
         private int unknownCount, page, columns = 1, rows = 1;
         private float cellWidth, cellHeight;
-        private const float HeaderHeight = 46f;
+        private static float HeaderHeight => 46f * CampusScreenLayout.Scale;
         public int CourseCount => ordered.Count;
 
         public void SetNotifications(IEnumerable<CourseCubeNotice> items)
@@ -197,9 +197,12 @@ namespace WebNotifications
         private void OnGUI()
         {
             if (!visible || mapCamera == null || ordered.Count == 0) return;
+            var detail = GetComponent<NotificationDetailUI>();
+            if (detail != null && detail.IsNotificationPanelOpen) return;
             if (label == null) label = new GUIStyle(GUI.skin.label) {
                 alignment = TextAnchor.UpperCenter, wordWrap = true, richText = false, fontSize = 13
             };
+            label.fontSize = Mathf.RoundToInt(13 * CampusScreenLayout.Scale);
             var viewport = mapCamera.pixelRect;
             float left = viewport.x, top = Screen.height - viewport.yMax;
             GUI.Label(new Rect(left + 8, top + 8, viewport.width - 16, 24), "과목별 알림 · " + ordered.Count + "개 과목", label);
@@ -237,3 +240,5 @@ namespace WebNotifications
         }
     }
 }
+
+

@@ -11,14 +11,79 @@ namespace WebNotifications
         private string source = "";
         private NotificationData selected;
         private Vector2 scroll;
-        private GUIStyle wrapped;
+        private GUIStyle wrapped, appTitle, appButton, caption;
+        public bool IsNotificationPanelOpen => showNotifications;
+        private bool showNotifications, savedCameraMask;
+        private int cameraMask;
         public void SelectSource(string id) { source = id; selected = null; scroll = Vector2.zero; }
         private float PanelWidth => Mathf.Min(440, Screen.width * .42f);
         private void LateUpdate()
         {
             if (mapCamera == null) return;
+            if (manager != null && manager.useWebView)
+            {
+                var school = manager.GetComponent<SmartleadWebView>();
+                mapCamera.rect = CampusScreenLayout.CameraRect;
+                if (!savedCameraMask) { cameraMask = mapCamera.cullingMask; savedCameraMask = true; }
+                mapCamera.enabled = true;
+                mapCamera.cullingMask = school != null && school.IsAuthenticated && !school.IsSchoolPageVisible ? cameraMask : 0;
+                return;
+            }
+            mapCamera.enabled = true;
+            if (savedCameraMask) mapCamera.cullingMask = cameraMask;
             float start = (PanelWidth + 24) / Screen.width;
             mapCamera.rect = new Rect(start, 0, 1 - start, 1);
+        }
+        private void DrawPortraitCampus(SmartleadWebView school)
+        {
+            if (school == null) return;
+            float scale = CampusScreenLayout.Scale;
+            var safe = CampusScreenLayout.SafeArea;
+            float padding = 12 * scale;
+            if (appTitle == null)
+            {
+                appTitle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft, richText = false };
+                appButton = new GUIStyle(GUI.skin.button) { richText = false };
+                caption = new GUIStyle(GUI.skin.label) { wordWrap = true, richText = false };
+            }
+            appTitle.fontSize = Mathf.RoundToInt(17 * scale);
+            appButton.fontSize = Mathf.RoundToInt(13 * scale);
+            caption.fontSize = Mathf.RoundToInt(11 * scale);
+            wrapped.fontSize = Mathf.RoundToInt(14 * scale);
+            bool campus = school.IsAuthenticated && !school.IsSchoolPageVisible;
+            GUI.Box(new Rect(safe.x, safe.y, safe.width, CampusScreenLayout.HeaderHeight), GUIContent.none);
+            float buttonWidth = 62 * scale, buttonHeight = 38 * scale;
+            float buttonY = safe.y + 10 * scale;
+            float right = safe.xMax - padding;
+            if (!campus)
+            {
+                string title = school.IsAuthenticated ? "학교 알림 기록" : "SmartLEAD 로그인";
+                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - buttonWidth - 3 * padding, 28 * scale), title, appTitle);
+                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - buttonWidth - 3 * padding, 24 * scale),
+                    school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : "로그인하면 픽셀 캠퍼스로 이동합니다.", caption);
+                if (school.IsAuthenticated)
+                {
+                    if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "캠퍼스", appButton)) school.CloseSchoolPage();
+                }
+                else if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "재접속", appButton)) school.Refresh();
+                GUI.Label(new Rect(safe.x + padding, safe.y + CampusScreenLayout.HeaderHeight + 20 * scale, safe.width - 2 * padding, 90 * scale), school.Status, wrapped);
+                return;
+            }
+            GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - 2 * buttonWidth - 4 * padding, CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
+            if (GUI.Button(new Rect(right - 2 * buttonWidth - 8 * scale, buttonY, buttonWidth, buttonHeight), showNotifications ? "닫기" : "알림", appButton)) showNotifications = !showNotifications;
+            if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "계정", appButton))
+            {
+                showNotifications = false;
+                school.OpenAccountPage();
+            }
+            if (!showNotifications) return;
+            var content = CampusScreenLayout.ContentArea;
+            GUILayout.BeginArea(new Rect(content.x + padding, content.y + padding, content.width - 2 * padding,
+                content.height - 2 * padding), GUI.skin.box);
+            scroll = GUILayout.BeginScrollView(scroll);
+            school.Draw(wrapped);
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
         }
         private void OnGUI()
         {
@@ -26,9 +91,7 @@ namespace WebNotifications
             if (wrapped == null) wrapped = new GUIStyle(GUI.skin.label) { wordWrap = true, richText = false };
             if (manager.useWebView)
             {
-                GUILayout.BeginArea(new Rect(12, 12, PanelWidth, Screen.height - 24), GUI.skin.box);
-                manager.GetComponent<SmartleadWebView>()?.Draw(wrapped);
-                GUILayout.EndArea();
+                DrawPortraitCampus(manager.GetComponent<SmartleadWebView>());
                 return;
             }
             float width = PanelWidth;
@@ -76,3 +139,6 @@ namespace WebNotifications
         }
     }
 }
+
+
+

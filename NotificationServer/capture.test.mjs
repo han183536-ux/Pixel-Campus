@@ -67,7 +67,7 @@ test('school notification request uses the required AJAX header and preserves se
   assert.match(options.headers.Accept, /application\/json/);
   assert.equal(options.body.get('type'), 'userInfoNotifications');
   assert.equal(options.body.get('sesskey'), 'test-session');
-  assert.deepEqual(events.filter(e => e.source !== 'school_history').map(e => [e.kind, e.source, e.total]), [
+  assert.deepEqual(events.filter(e => e.source !== 'school_history' && e.kind !== 'session').map(e => [e.kind, e.source, e.total]), [
     ['notifications', 'school_api', 0], ['messages', 'school_api', 0]
   ]);
 });
@@ -82,7 +82,7 @@ test('HTML and malformed responses report failure without reporting an empty sch
     assert.doesNotMatch(events[0].error, /Unexpected token/);
   }
   const {events} = await capture({status: 503});
-  assert.match(events[0].error, /HTTP 503/);
+  assert.match(events.find(e => e.source === 'school').error, /HTTP 503/);
 });
 
 test('expired school sessions request authentication and suppress late Moodle zero counts', async () => {
@@ -92,8 +92,8 @@ test('expired school sessions request authentication and suppress late Moodle ze
     {text: JSON.stringify({code: '399', msg: '로그인 필요'})}
   ]) {
     const {events} = await capture({...options, lateMoodleResult: true});
-    assert.deepEqual(events.map(e => e.kind), ['authentication']);
-    assert.equal(events[0].error, 'login_required');
+    assert.deepEqual(events.filter(e => e.kind !== 'session').map(e => e.kind), ['authentication']);
+    assert.equal(events.find(e => e.kind === 'authentication').error, 'login_required');
   }
 });
 
@@ -101,7 +101,7 @@ test('anonymous or unconfirmed pages cannot report the school endpoint empty lis
   for (const options of [{loggedIn: false}, {loginLink: true}]) {
     const {events, requests} = await capture(options);
     assert.equal(requests.length, 0);
-    assert.deepEqual(events.map(e => e.kind), ['authentication']);
+    assert.deepEqual(events.filter(e => e.kind !== 'session').map(e => e.kind), ['authentication']);
   }
 });
 
@@ -189,3 +189,14 @@ test('school history identifies the displayed course name and section code witho
   ]);
   assert.ok(items.slice(3).every(e => e.courseName === '' && e.courseCode === ''));
 });
+
+test('confirmed login emits a session event before notification retrieval, including an empty inbox', async () => {
+  const {events} = await capture();
+  assert.equal(events[0].kind, 'session');
+  assert.equal(events[0].authenticated, true);
+  assert.ok(events.some(e => e.kind === 'notifications' && e.total === 0));
+  const anonymous = await capture({loggedIn: false});
+  assert.ok(!anonymous.events.some(e => e.kind === 'session'));
+});
+
+

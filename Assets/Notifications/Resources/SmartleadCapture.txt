@@ -74,6 +74,8 @@
     return;
   }
 
+  send({kind: 'session', authenticated: true});
+
   // Read the list page only. Opening an item's .move_link would mark it read.
   async function scanSchoolHistory() {
     const controller = new AbortController();
@@ -313,3 +315,4 @@
   setTimeout(scanDom, 2000);
   setTimeout(scanDom, 5000);
 })();
+

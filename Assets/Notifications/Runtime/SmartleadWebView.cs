@@ -9,7 +9,8 @@ namespace WebNotifications
     public class SmartleadWebView : MonoBehaviour
     {
         [Serializable] private class Notice { public int id, courseId; public string sender, title, courseName, courseCode, type; public bool read, readKnown; }
-        [Serializable] private class Capture { public string kind, nonce, page, source, error; public int count, total; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown; public Notice[] items; }
+        [Serializable] private class Capture { public string kind, nonce, page, source, error; public int count, total; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated; public Notice[] items; }
+        private const string LoginPage = "https://smartlead.hallym.ac.kr/login/index.php";
         private const string NotificationPage = "https://smartlead.hallym.ac.kr/local/ubion/user/index.php";
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
@@ -34,6 +35,9 @@ namespace WebNotifications
         public int MessageCount { get; private set; }
         public int MessageTotal { get; private set; }
         public bool HasMessagesResult { get; private set; }
+        public bool IsAuthenticated { get; private set; }
+        public bool IsSchoolPageVisible => authenticationVisible;
+        private GUIStyle touchButton;
 
         private void Start()
         {
@@ -55,8 +59,10 @@ namespace WebNotifications
                         titles.Clear(); messages.Clear();
                         Status = "알림 확인 중"; MessageStatus = "쪽지 확인 중"; },
                     ld: url => { currentUrl = url; Inject(); });
-                view.SetVisibility(false);
-                view.LoadURL(NotificationPage);
+                ShowAuthentication();
+                view.LoadURL(LoginPage);
+                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
+                MessageStatus = "로그인 대기 중";
                 nextRefresh = Time.unscaledTime + 30;
             }
             catch (Exception ex) { Status = "WebView 초기화 실패: " + ex.GetType().Name; }
@@ -72,9 +78,12 @@ namespace WebNotifications
         {
             if (!SchoolPage(currentUrl) || new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             {
+                IsAuthenticated = false;
+                courseCubes?.Clear();
+                accountPagePinned = false;
                 returnFromLogin = true;
                 ShowAuthentication();
-                Status = "오른쪽 학교 페이지에서 로그인하면 알림·쪽지를 확인합니다.";
+                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
                 return;
             }
             var path = new Uri(currentUrl).AbsolutePath;
@@ -94,7 +103,7 @@ namespace WebNotifications
             if (view == null) return;
             if (authenticationVisible)
             {
-                view.SetMargins(Mathf.Min(464, Mathf.RoundToInt(Screen.width * .42f) + 24), 12, 12, 12);
+                ApplyWebViewMargins();
                 return;
             }
             if (Time.unscaledTime < nextRefresh) return;
@@ -104,20 +113,21 @@ namespace WebNotifications
 
         private void ShowAuthentication()
         {
-            if (view == null || authenticationVisible) return;
+            if (view == null) return;
             authenticationVisible = true;
             courseCubes?.SetVisible(false);
-            view.SetMargins(Mathf.Min(464, Mathf.RoundToInt(Screen.width * .42f) + 24), 12, 12, 12);
+            ApplyWebViewMargins();
             view.SetVisibility(true);
         }
 
         public void OpenAccountPage()
         {
             if (view == null) return;
-            accountPagePinned = true;
+            accountPagePinned = false;
+            IsAuthenticated = false;
             courseCubes?.Clear();
             ShowAuthentication();
-            view.LoadURL("https://smartlead.hallym.ac.kr/login/index.php");
+            view.LoadURL(LoginPage);
         }
 
         public void OpenHistoryPage()
@@ -130,9 +140,10 @@ namespace WebNotifications
 
         private void HideAccountPage()
         {
+            if (!IsAuthenticated) return;
             accountPagePinned = false;
             authenticationVisible = false;
-            view.SetVisibility(false);
+            view?.SetVisibility(false);
             courseCubes?.SetVisible(true);
             nextRefresh = Time.unscaledTime + 30;
         }
@@ -162,9 +173,20 @@ namespace WebNotifications
             if (isMessage) courseCubes.SetMessages(entries); else courseCubes.SetNotifications(entries);
         }
 
+        private void ApplyWebViewMargins()
+        {
+            if (view == null) return;
+            var area = CampusScreenLayout.ContentArea;
+            view.SetMargins(Mathf.RoundToInt(area.x), Mathf.RoundToInt(area.y),
+                Mathf.RoundToInt(Screen.width - area.xMax), Mathf.RoundToInt(Screen.height - area.yMax));
+        }
+
+        public void CloseSchoolPage() { HideAccountPage(); }
+
         public void Refresh()
         {
             if (view == null) return;
+            if (!IsAuthenticated) { view.LoadURL(LoginPage); return; }
             if (!SchoolPage(currentUrl) || new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
                 view.LoadURL(NotificationPage);
             else view.Reload();
@@ -176,8 +198,16 @@ namespace WebNotifications
             Capture data;
             try { data = JsonUtility.FromJson<Capture>(message); } catch { return; }
             if (data == null || data.nonce != nonce || data.page != currentUrl) return;
+            if (data.kind == "session")
+            {
+                if (!data.authenticated) return;
+                IsAuthenticated = true;
+                if (!accountPagePinned) HideAccountPage();
+                return;
+            }
             if (data.kind == "authentication")
             {
+                IsAuthenticated = false;
                 HasResult = false;
                 HasMessagesResult = false;
                 schoolResult = false;
@@ -188,7 +218,7 @@ namespace WebNotifications
                 courseCubes?.Clear();
                 schoolStatus = "학교 로그인 계정 확인 필요";
                 ShowAuthentication();
-                Status = "오른쪽 학교 페이지에서 로그인하면 알림·쪽지를 확인합니다.";
+                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
                 MessageStatus = "로그인 대기 중";
                 return;
             }
@@ -249,7 +279,7 @@ namespace WebNotifications
             {
                 HideAccountPage();
             }
-            else if (!data.found && !HasMessagesResult) ShowAuthentication();
+            else if (!IsAuthenticated && !data.found && !HasMessagesResult) ShowAuthentication();
             Status = !data.found ? "알림 영역 없음 (" + new Uri(currentUrl).AbsolutePath + "). " + apiStatus :
                 (data.source == "school_history" ? "학교 알림 기록 (읽은 알림 포함) " :
                     data.source == "school_api" ? "학교 알림·쪽지 " : "Moodle 최근 알림 (읽은 알림 포함) ") + Total + "건" +
@@ -260,15 +290,18 @@ namespace WebNotifications
 
         public void Draw(GUIStyle label)
         {
+            if (touchButton == null) touchButton = new GUIStyle(GUI.skin.button);
+            touchButton.fontSize = Mathf.RoundToInt(14 * CampusScreenLayout.Scale);
+            touchButton.fixedHeight = 44 * CampusScreenLayout.Scale;
             GUILayout.Label("SmartLEAD 쪽지·알림 감지", label);
             GUILayout.Label(Status, label);
             GUILayout.Label(MessageStatus, label);
             if (!schoolResult) GUILayout.Label(schoolStatus, label);
             if (!historyResult) GUILayout.Label(historyStatus, label);
-            if (GUILayout.Button("다시 확인")) Refresh();
-            if (GUILayout.Button("학교 로그인 / 계정 확인")) OpenAccountPage();
-            if (GUILayout.Button("학교 알림 기록 보기")) OpenHistoryPage();
-            if (accountPagePinned && (HasResult || HasMessagesResult) && GUILayout.Button("학교 화면 닫기")) HideAccountPage();
+            if (GUILayout.Button("다시 확인", touchButton)) Refresh();
+            if (GUILayout.Button("학교 로그인 / 계정 확인", touchButton)) OpenAccountPage();
+            if (GUILayout.Button("학교 알림 기록 보기", touchButton)) OpenHistoryPage();
+            if (accountPagePinned && (HasResult || HasMessagesResult) && GUILayout.Button("학교 화면 닫기", touchButton)) HideAccountPage();
             if (HasMessagesResult)
             {
                 foreach (var message in messages) GUILayout.Label("• " + message, label);
@@ -284,3 +317,5 @@ namespace WebNotifications
         private void OnDestroy() { if (view != null) Destroy(view.gameObject); }
     }
 }
+
+

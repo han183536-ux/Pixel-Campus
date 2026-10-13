@@ -6,14 +6,17 @@ public class PixelPlayerMovement : MonoBehaviour
     [Min(0f)] public float moveSpeed = 4f;
 
     private Camera mainCamera;
+    private WebNotifications.SmartleadWebView school;
 
     private void Awake()
     {
         mainCamera = Camera.main;
+        school = FindFirstObjectByType<WebNotifications.SmartleadWebView>();
     }
 
     private void Update()
     {
+        if (school != null && (!school.IsAuthenticated || school.IsSchoolPageVisible)) return;
         float horizontal = 0f;
         float vertical = 0f;
 
@@ -32,3 +35,4 @@ public class PixelPlayerMovement : MonoBehaviour
             transform.rotation = mainCamera.transform.rotation;
     }
 }
+
