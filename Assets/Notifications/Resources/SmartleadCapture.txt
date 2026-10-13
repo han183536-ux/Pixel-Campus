@@ -1,0 +1,315 @@
+(() => {
+  if (location.origin !== 'https://smartlead.hallym.ac.kr') return;
+  const nonce = '__UNITY_NONCE__';
+  let apiSucceeded = false, popupTotal = -1, historyPreferred = false, schoolSucceeded = false, historySucceeded = false, authenticationRequired = false;
+  const send = data => {
+    if (data.kind === 'authentication') authenticationRequired = true;
+    if (authenticationRequired && data.kind !== 'authentication') return;
+    if (historySucceeded && data.kind === 'notifications' && data.source !== 'school_history') return;
+    if (historyPreferred && data.kind === 'notifications' && data.source === 'school_api') return;
+    if (schoolSucceeded && data.kind === 'messages' && data.source !== 'school_api') return;
+    if (schoolSucceeded && data.kind === 'notifications' &&
+      !['school_api', 'school_history', 'message_api'].includes(data.source)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({...data, nonce, page: location.href}));
+  };
+  const clean = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  function courseText(value) {
+    const match = clean(value).match(/^(.+?)\s*\((\d{6}-\d{2})\)\s*[-–—]\s*(.+)$/);
+    return match ? {courseName: match[1].trim(), courseCode: match[2], title: match[3].trim()} : null;
+  }
+  function courseInfo(value = {}, row = null) {
+    let courseId = Number(value.courseid || row?.getAttribute('data-courseid')) || 0;
+    let courseName = clean(value.coursename || row?.getAttribute('data-coursename') ||
+      row?.querySelector('.coursename, .course-name')?.textContent);
+    const textCourse = courseText(value.subject || value.smallmessage || value.title || row?.textContent);
+    let courseCode = clean(value.coursecode || row?.getAttribute('data-coursecode'));
+    if (!/^\d{6}-\d{2}$/.test(courseCode)) courseCode = '';
+    if (textCourse && (!courseName || courseName === textCourse.courseName)) {
+      courseName = textCourse.courseName;
+      courseCode = courseCode || textCourse.courseCode;
+    }
+    const links = row ? [...row.querySelectorAll('a[href]')] : [];
+    const candidates = [value.contexturl, ...links.map(link => link.getAttribute('href'))];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        const url = new URL(candidate, location.href);
+        if (url.origin !== location.origin || url.pathname !== '/course/view.php') continue;
+        const id = Number(url.searchParams.get('id'));
+        if (!Number.isSafeInteger(id) || id <= 0 || courseId && courseId !== id) continue;
+        courseId = id;
+        // Keep names supplied by the notification; a generic "view" link is not a course name.
+      } catch { /* A malformed link cannot identify a course. */ }
+    }
+    if (!Number.isSafeInteger(courseId) || courseId <= 0) courseId = 0;
+    return {courseId, courseName, courseCode};
+  }
+  function schoolItem(row, defaultType = '') {
+    const link = row.matches('.move_link') ? row : row.querySelector('.move_link');
+    const type = row.getAttribute('data-type') || link?.getAttribute('data-type') || defaultType;
+    const body = row.querySelector('.media-body-message, .media-body');
+    const heading = row.querySelector('.media-heading, .media-body .font-weight-bold');
+    const readValue = row.getAttribute('data-read') ?? link?.getAttribute('data-read');
+    const read = readValue === '1' || readValue === 'true' || row.matches('.read') || !!body?.matches?.('.read');
+    const unread = readValue === '0' || readValue === 'false' || row.matches('.unread, .no-read') ||
+      !!body?.matches?.('.unread, .no-read');
+    const rawTitle = clean(body?.textContent || row.textContent);
+    const course = courseInfo({title: rawTitle}, row);
+    const textCourse = courseText(rawTitle);
+    return {
+      id: Number(link?.getAttribute('data-id') || row.getAttribute('data-id')) || 0,
+      sender: type === 'message' ? clean(heading?.textContent) : '',
+      title: textCourse && course.courseName === textCourse.courseName && course.courseCode === textCourse.courseCode
+        ? textCourse.title : rawTitle,
+      type, read, readKnown: read || unread, ...course
+    };
+  }
+  const loginLink = document.querySelector('#page-header a[href*="/login/index.php"], header a[href*="/login/index.php"]');
+  const loggedIn = document.body?.classList.contains('loggedin') || currentUserId() > 0 ||
+    !!document.querySelector('#page-header .nav-item-userinfo .btn-userinfo');
+  // The school endpoint also returns code 100 and an empty list to anonymous users.
+  // Require a page-level account signal before accepting any inbox result.
+  if (document.body?.classList.contains('notloggedin') || loginLink || !loggedIn) {
+    send({kind: 'authentication', error: loggedIn ? 'login_required' : 'login_state_unconfirmed'});
+    return;
+  }
+
+  // Read the list page only. Opening an item's .move_link would mark it read.
+  async function scanSchoolHistory() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('/local/ubnotification/', {
+        credentials: 'same-origin', signal: controller.signal, headers: {'Accept': 'text/html'}
+      });
+      const url = new URL(response.url || '/local/ubnotification/', location.href);
+      if (url.origin !== location.origin || /^\/login(?:\/|$)/i.test(url.pathname)) {
+        send({kind: 'authentication', error: 'login_required'});
+        return;
+      }
+      if (!response.ok) throw new Error('학교 서버 응답 오류 (HTTP ' + response.status + ')');
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      if (doc.querySelector('body.notloggedin, form[action*="/login/"], input[name="logintoken"]')) {
+        send({kind: 'authentication', error: 'login_required'});
+        return;
+      }
+      if (url.pathname !== '/local/ubnotification/' && url.pathname !== '/local/ubnotification/index.php')
+        throw new Error('학교 알림 기록 페이지로 연결되지 않았습니다.');
+      const root = doc.querySelector('#region-main, .ubnotification');
+      if (!root) throw new Error('학교 알림 기록의 목록 구조를 확인할 수 없습니다.');
+      const rows = [...root.querySelectorAll('.media')];
+      const items = rows.map(row => schoolItem(row, 'notification')).filter(item => item.title);
+      if (rows.length && !items.length || !rows.length && !/알림.*없|no notifications/i.test(clean(root.textContent)))
+        throw new Error('학교 알림 기록의 목록 구조를 확인할 수 없습니다.');
+      historySucceeded = true;
+      send({kind: 'notifications', source: 'school_history', found: true,
+        total: items.length, count: items.filter(item => item.readKnown && !item.read).length,
+        unreadUnknown: items.some(item => !item.readKnown),
+        historyLimited: items.length > 50 || !!root.querySelector('.pagination a, .paging a'), items: items.slice(0, 50)});
+    } catch (error) {
+      send({kind: 'api_status', source: 'school_history', error: clean(error?.message || '알림 기록 조회 실패')});
+    } finally { clearTimeout(timeout); }
+  }
+
+  // Coursemos stores its user-menu notifications separately from Moodle's popup inbox.
+  // Query the same list as the school UI, without opening links or marking anything read.
+  async function scanSchool() {
+    if (document.body?.classList.contains('notloggedin')) {
+      send({kind: 'authentication', error: 'login_required'});
+      return;
+    }
+    const sesskey = window.M?.cfg?.sesskey;
+    if (!sesskey || typeof fetch !== 'function') return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('/theme/coursemosv2/action.php', {
+        method: 'POST', credentials: 'same-origin', signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: new URLSearchParams({type: 'userInfoNotifications', sesskey})
+      });
+      const responseUrl = new URL(response.url || location.href, location.href);
+      if (responseUrl.origin !== location.origin || /^\/login(?:\/|$)/i.test(responseUrl.pathname)) {
+        send({kind: 'authentication', error: 'login_required'});
+        return;
+      }
+      if (!response.ok) throw new Error('학교 서버 응답 오류 (HTTP ' + response.status + ')');
+      const text = await response.text();
+      if (/^\s*</.test(text)) {
+        const html = new DOMParser().parseFromString(text, 'text/html');
+        if (html.querySelector('body.notloggedin, form[action*="/login/"], input[name="logintoken"]')) {
+          send({kind: 'authentication', error: 'login_required'});
+          return;
+        }
+        throw new Error('학교 서버가 JSON 대신 HTML을 반환했습니다. 다시 확인해 주세요.');
+      }
+      let result;
+      try { result = JSON.parse(text); }
+      catch { throw new Error('학교 알림 응답 형식을 확인할 수 없습니다.'); }
+      if (String(result?.code) === String(window.mesg?.failureNotLogin ?? '399')) {
+        send({kind: 'authentication', error: 'login_required'});
+        return;
+      }
+      if (String(result?.code) !== String(window.mesg?.success ?? '100') || typeof result.html !== 'string')
+        throw new Error(clean(result?.msg || 'invalid_school_response'));
+      const doc = new DOMParser().parseFromString(result.html, 'text/html');
+      const rows = [...doc.querySelectorAll('.media-lists .media, .media[data-type]')];
+      if (!rows.length && !doc.querySelector('.media-lists')) throw new Error('school_list_structure_unavailable');
+      if (!rows.length && clean(doc.querySelector('.media-lists')?.textContent) &&
+        !/알림.*없|no notifications/i.test(doc.querySelector('.media-lists').textContent))
+        throw new Error('school_list_structure_unavailable');
+      const items = rows.map(row => schoolItem(row)).filter(item => item.title || item.sender);
+      if (rows.length && !items.length) throw new Error('school_items_unavailable');
+      const badge = document.querySelector('#page-header .nav-item-userinfo .btn-userinfo .badge');
+      const badgeText = clean(badge?.textContent);
+      const badgeKnown = /^\d+\+?$/.test(badgeText) || !!document.querySelector('#page-header .nav-item-userinfo .btn-userinfo');
+      const allReadKnown = items.every(item => item.readKnown);
+      const direct = items.filter(item => item.type === 'message');
+      schoolSucceeded = true;
+      send({kind: 'notifications', source: 'school_api', found: true,
+        total: items.length, count: /^\d+\+?$/.test(badgeText) ? parseInt(badgeText, 10) :
+          allReadKnown ? items.filter(item => !item.read).length : 0,
+        unreadUnknown: !badgeKnown && !allReadKnown, items: items.slice(0, 30)});
+      send({kind: 'messages', source: 'school_api', found: true,
+        total: direct.length, count: direct.filter(item => item.readKnown && !item.read).length,
+        unreadUnknown: direct.some(item => !item.readKnown), items: direct.slice(0, 30)});
+    } catch (error) {
+      send({kind: 'api_status', source: 'school', error: clean(error?.message || 'school_api_unavailable')});
+    } finally { clearTimeout(timeout); }
+  }
+
+  if (document.body?.classList.contains('notloggedin')) {
+    send({kind: 'authentication', error: 'login_required'});
+    return;
+  }
+  scanSchool();
+  scanSchoolHistory();
+  function currentUserId() {
+    const configured = Number(window.M?.cfg?.userid);
+    if (Number.isSafeInteger(configured) && configured > 0) return configured;
+    const profile = document.querySelector('.usermenu a[href*="/user/profile.php?id="], ' +
+      '#user-menu-toggle[href*="/user/profile.php?id="], ' +
+      'header a[href*="/user/profile.php?id="]');
+    if (!profile) return 0;
+    try {
+      const url = new URL(profile.href, location.href);
+      const id = Number(url.searchParams.get('id'));
+      return url.origin === location.origin && Number.isSafeInteger(id) && id > 0 ? id : 0;
+    } catch { return 0; }
+  }
+
+  function scanDom() {
+    if (apiSucceeded) return;
+    const root = document.querySelector('[data-region="popover-region-notifications"], .popover-region-notifications');
+    const badge = root?.querySelector('[data-region="count-container"], .count-container, .unread-count, .badge');
+    const badgeText = clean(badge?.textContent);
+    const badgeCount = /^\d+\+?$/.test(badgeText) ? parseInt(badgeText, 10) : 0;
+    const entries = root ? [...root.querySelectorAll('[data-region="notification-content-item-container"], [data-region="notification"], .notification-message')] : [];
+    const items = entries.filter(el => !el.matches('.hidden,[aria-hidden="true"]'))
+      .map(el => ({title: clean(el.textContent), read: el.classList.contains('read'),
+        readKnown: el.matches('.read,.unread'), ...courseInfo({}, el)})).filter(item => item.title).slice(0, 30);
+    send({kind: 'notifications', source: 'dom', found: !!root,
+      count: Math.max(badgeCount, items.filter(item => item.readKnown && !item.read).length),
+      total: items.length, unreadUnknown: items.some(item => !item.readKnown), items});
+  }
+
+  if (typeof require === 'function') {
+    try {
+      require(['core/ajax'], ajax => {
+        const popup = ajax.call([{
+          methodname: 'message_popup_get_popup_notifications',
+          args: {useridto: 0, newestfirst: true, limit: 30, offset: 0}
+        }])[0];
+        popup.then(result => {
+          if (!result || !Array.isArray(result.notifications)) return;
+          apiSucceeded = true;
+          const items = result.notifications.map(n => ({
+            title: clean(n.subject || n.smallmessage), read: !!n.read,
+            readKnown: typeof n.read === 'boolean' || n.read === 0 || n.read === 1, ...courseInfo(n)
+          })).filter(item => item.title).slice(0, 30);
+          popupTotal = items.length;
+          if (!historyPreferred) send({kind: 'notifications', source: 'popup_api', found: true,
+            count: Number(result.unreadcount) || 0, total: items.length, items});
+        }).catch(error => {
+          send({kind: 'api_status', error: clean(error?.errorcode || 'popup_unavailable')});
+        });
+
+        const userId = currentUserId();
+        if (Number.isInteger(userId) && userId > 0) {
+          const getMessages = read => ajax.call([{
+            methodname: 'core_message_get_messages',
+            args: {useridto: userId, useridfrom: 0, type: 'notifications',
+              read, newestfirst: true, limitfrom: 0, limitnum: 30}
+          }])[0];
+          Promise.allSettled([getMessages(0), getMessages(1)]).then(results => {
+            const unread = results[0].status === 'fulfilled' && Array.isArray(results[0].value?.messages)
+              ? results[0].value.messages : [];
+            const read = results[1].status === 'fulfilled' && Array.isArray(results[1].value?.messages)
+              ? results[1].value.messages : [];
+            if (!results.every(r => r.status === 'fulfilled' && Array.isArray(r.value?.messages))) {
+              send({kind: 'api_status', error: 'message_history_unavailable'});
+              return;
+            }
+            const items = [...unread.map(n => ({title: clean(n.subject || n.smallmessage), read: false, readKnown: true, ...courseInfo(n)})),
+              ...read.map(n => ({title: clean(n.subject || n.smallmessage), read: true, readKnown: true, ...courseInfo(n)}))]
+              .filter(item => item.title).slice(0, 60);
+            if (items.length > popupTotal) {
+              apiSucceeded = true;
+              historyPreferred = true;
+              send({kind: 'notifications', source: 'message_api', found: true,
+                count: unread.length, total: items.length, items});
+            }
+          });
+
+          const getDirectMessages = read => ajax.call([{
+            methodname: 'core_message_get_messages',
+            args: {useridto: userId, useridfrom: 0, type: 'conversations',
+              read, newestfirst: true, limitfrom: 0, limitnum: 100}
+          }])[0];
+          Promise.allSettled([getDirectMessages(0), getDirectMessages(1)]).then(results => {
+            const valid = results.map(r => r.status === 'fulfilled' && Array.isArray(r.value?.messages));
+            if (!valid.every(Boolean)) {
+              send({kind: 'api_status', source: 'messages', error: 'direct_messages_unavailable'});
+              return;
+            }
+            const unread = valid[0] ? results[0].value.messages : [];
+            const read = valid[1] ? results[1].value.messages : [];
+            const asItem = (message, wasRead) => ({
+              id: Number(message.id) || 0,
+              sender: clean(message.userfromfullname || ''),
+              title: clean(message.subject || message.smallmessage || message.fullmessage || ''),
+              read: wasRead, readKnown: true, ...courseInfo(message)
+            });
+            const items = [...unread.map(m => asItem(m, false)),
+              ...read.map(m => asItem(m, true))].filter(item => item.sender || item.title);
+            send({kind: 'messages', source: 'message_api', found: true,
+              count: unread.length, total: items.length,
+              unreadLimited: unread.length === 100, historyLimited: read.length === 100, items});
+          });
+        } else {
+          ajax.call([{
+            methodname: 'core_message_get_unread_conversations_count',
+            args: {useridto: 0}
+          }])[0].then(count => {
+            if (!['number', 'string'].includes(typeof count) || String(count).trim() === '' ||
+              !Number.isInteger(Number(count)) || Number(count) < 0) throw new Error('invalid_count');
+            send({kind: 'messages', source: 'unread_count_api', found: true,
+              count: Number(count), total: 0, countOnly: true, items: []});
+          }).catch(error => {
+            send({kind: 'api_status', source: 'messages',
+              error: clean(error?.errorcode || error?.message || 'unread_count_unavailable')});
+          });
+        }
+      });
+    } catch (error) {
+      send({kind: 'api_status', error: 'module_unavailable'});
+    }
+  }
+  if (document.querySelector('[data-region="popover-region-notifications"], .popover-region-notifications')) scanDom();
+  setTimeout(scanDom, 2000);
+  setTimeout(scanDom, 5000);
+})();

@@ -1,0 +1,7 @@
+{
+  "notifications": [
+    {"id":"sample-school-{{TODAY}}","source_id":"smartlead","source_name":"SmartLEAD (샘플)","title":"[샘플] 오늘의 학사 공지","message":"학교 공지를 건물에 연결한 예시입니다. 실제 사이트 연결 전의 테스트 데이터입니다.","published_at":"{{TODAY}}T09:00:00+09:00","target_object_id":"building_smartlead","icon_type":"notice","priority":"normal","url":""},
+    {"id":"sample-calendar-{{TODAY}}","source_id":"calendar","source_name":"일정 (샘플)","title":"[샘플] 프로젝트 회의","message":"일정 서비스를 연결할 공간입니다. 알림을 선택하면 이 기기에서 읽음으로 저장됩니다.","published_at":"{{TODAY}}T10:00:00+09:00","target_object_id":"building_calendar","icon_type":"calendar","priority":"normal","url":""},
+    {"id":"sample-news-{{TODAY}}","source_id":"news","source_name":"새 소식 (샘플)","title":"[샘플] 새 게시글이 도착했습니다","message":"중간 서버가 사이트 데이터를 동일한 JSON 형식으로 변환합니다.","published_at":"{{TODAY}}T11:00:00+09:00","target_object_id":"building_news","icon_type":"notice","priority":"normal","url":""}
+  ]
+}

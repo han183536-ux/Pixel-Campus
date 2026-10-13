@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "SmartLEAD → Unity 알림 연결",
+  "version": "0.1.0",
+  "description": "직접 선택한 SmartLEAD 알림 목록의 제목과 링크만 이 PC의 Unity로 전달합니다.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {"service_worker":"background.js"},
+  "action": {"default_popup":"popup.html"},
+  "content_scripts": [{"matches":["https://smartlead.hallym.ac.kr/*"],"js":["content.js"],"run_at":"document_idle"}]
+}

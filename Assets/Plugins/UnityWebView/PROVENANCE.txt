@@ -1,0 +1,6 @@
+﻿Source: https://github.com/gree/unity-webview
+Commit: 5604a7dc1beba961db00c84f0f68c979bf23092e
+Files: dist/package/Assets/Plugins/WebViewObject.cs, dist/package/Assets/Plugins/Windows/x64/WebView.dll
+WebView.dll SHA256: 1B0F5FB0576CF59B51DDC91604675F5D0AC10E7709295905D708E1EA74DD5968
+Native binary unchanged; plugin import platform settings narrowed to Windows x64.
+Local C# modification: Windows backspace forwards VK_BACK down/up without a duplicate WM_CHAR; printable input remains unchanged.

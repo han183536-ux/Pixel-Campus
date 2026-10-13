@@ -1,0 +1,48 @@
+# Unity-generated directories (including nested Unity projects).
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+**/[Rr]ecordings/
+
+# Generated IDE files and workstation settings.
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.slnx
+*.user
+*.suo
+*.pidb
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.log
+.DS_Store
+Thumbs.db
+
+# Local credentials, sessions, and captured private notification data.
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+.codex/
+.agents/
+.aws/
+/NotificationServer/smartlead.notifications.json
+
+# Separate CLI comparison projects kept locally beside this Unity project.
+/bridge_cli_TEST/
+/CliBridgeBenchmark/
+/MovementBridge/
+/MovementOfficial/
+/MOVEMENT-COMPARISON.ko.md
+
+# Local diagnostic screenshots.
+/Screenshots/
