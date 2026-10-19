@@ -111,9 +111,11 @@ namespace WebNotifications
         private void Update()
         {
             var detail = GetComponent<NotificationDetailUI>();
-            if (!visible || mapCamera == null || detail != null && detail.IsNotificationPanelOpen) return;
+            if (!visible || mapCamera == null || detail != null && (detail.IsNotificationPanelOpen || detail.SuppressCampusInput)) return;
             if (Input.touchCount != 1) { touchId = -1; dragging = false; return; }
             var touch = Input.GetTouch(0);
+            if (PixelPlayerMovement.BlocksCampusPointer(new Vector2(touch.position.x, Screen.height - touch.position.y)))
+            { touchId = -1; dragging = false; return; }
             if (touch.phase == TouchPhase.Began && mapCamera.pixelRect.Contains(touch.position))
             { touchId = touch.fingerId; touchStart = touch.position; touchScroll = scroll.y; dragging = false; }
             if (touch.fingerId != touchId) return;
@@ -156,7 +158,7 @@ namespace WebNotifications
         {
             if (!visible || mapCamera == null) return;
             var detail = GetComponent<NotificationDetailUI>();
-            if (detail != null && detail.IsNotificationPanelOpen) return;
+            if (detail != null && (detail.IsNotificationPanelOpen || detail.SuppressCampusInput)) return;
             float scale = CampusScreenLayout.Scale;
             if (label == null) label = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, wordWrap = true, richText = false };
             label.fontSize = Mathf.RoundToInt(10 * scale);
@@ -164,9 +166,10 @@ namespace WebNotifications
             float top = Screen.height - viewport.yMax;
             GUI.Label(new Rect(viewport.x, top + 4 * scale, viewport.width, HeaderHeight), "전체 " + ordered.Count + "과목 · 미제출 과제 우선", label);
             var area = new Rect(viewport.x, top + HeaderHeight, viewport.width, Mathf.Max(1, viewport.height - HeaderHeight));
+            bool movementPointer = PixelPlayerMovement.BlocksCampusPointer(Event.current.mousePosition);
             scroll = GUI.BeginScrollView(area, scroll, new Rect(0, 0, columns * cellWidth, Mathf.Max(area.height, contentHeight)));
             bool enabled = GUI.enabled;
-            GUI.enabled = enabled && !dragging;
+            GUI.enabled = enabled && !dragging && !movementPointer;
             for (int index = 0; index < ordered.Count; index++)
             {
                 var item = ordered[index].data;

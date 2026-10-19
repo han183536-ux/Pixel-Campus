@@ -17,7 +17,8 @@
       data.historyLimited = true;
       payload = JSON.stringify({...data, nonce, page: location.href});
     }
-    window.chrome?.webview?.postMessage(payload);
+    if (typeof window.Unity?.call === 'function') window.Unity.call(payload);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(payload);
   };
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
   function detailInfo(value = {}, row = null) {

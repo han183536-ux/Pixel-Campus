@@ -9,8 +9,11 @@
   const plain = value => text(new DOMParser().parseFromString(String(value || ''), 'text/html').body?.textContent);
   let expired = false;
   const send = data => {
-    if (!expired || data.kind === 'authentication')
-      window.chrome?.webview?.postMessage(JSON.stringify({...data, nonce, page: location.href}));
+    if (!expired || data.kind === 'authentication') {
+      const payload = JSON.stringify({...data, nonce, page: location.href});
+      if (typeof window.Unity?.call === 'function') window.Unity.call(payload);
+      else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(payload);
+    }
   };
   const courseInfo = course => {
     const name = plain(course.fullname || course.courseName || course.shortname);

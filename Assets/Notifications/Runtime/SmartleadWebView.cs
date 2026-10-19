@@ -15,6 +15,8 @@ namespace WebNotifications
         private SmartleadCourseCubes courseCubes;
         private string nonce, currentUrl, script;
         private float nextRefresh;
+        private bool applicationPaused, resumeRefreshPending, networkWasUnavailable;
+        private float resumeRefreshAt;
         private bool authenticationVisible;
         private bool accountPagePinned;
         private bool returnFromLogin;
@@ -39,7 +41,7 @@ namespace WebNotifications
         private bool notificationsConfirmed, rosterPartial;
         private bool courseworkFailed, scheduleAvailable, courseworkFinished;
         private float courseworkDeadline;
-        public string CourseworkStatus => courseworkStatus;
+        public string CourseworkStatus => networkWasUnavailable ? Status : courseworkStatus;
         private string selectedCourseKey, selectedCourseTitle;
         private Notice selectedNotice;
         public string Status { get; private set; } = "알림 확인 준비 중";
@@ -59,6 +61,9 @@ namespace WebNotifications
         private void Start()
         {
             if (!GetComponent<NotificationManager>().useWebView) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            Input.backButtonLeavesApp = false;
+#endif
             courseCubes = GetComponent<SmartleadCourseCubes>();
             if (courseCubes == null) courseCubes = gameObject.AddComponent<SmartleadCourseCubes>();
             var asset = Resources.Load<TextAsset>("SmartleadCapture");
@@ -79,7 +84,7 @@ namespace WebNotifications
                         historyResult = false; notificationPriority = 0; historyStatus = "읽은 알림 포함 기록 조회 중";
                         titles.Clear(); messages.Clear();
                         Status = "알림 확인 중"; MessageStatus = "쪽지 확인 중"; },
-                    ld: url => { currentUrl = url; Inject(); });
+                    ld: url => { currentUrl = url; Inject(); }, androidForceDarkMode: 1);
                 ShowAuthentication();
                 // Let the school reuse its session or redirect to login when it has expired.
                 view.LoadURL(NotificationPage);
@@ -87,7 +92,51 @@ namespace WebNotifications
                 MessageStatus = "로그인 대기 중";
                 nextRefresh = Time.unscaledTime + 120;
             }
-            catch (Exception ex) { Status = "WebView 초기화 실패: " + ex.GetType().Name; }
+            catch (Exception ex)
+            {
+                Status = Application.platform == RuntimePlatform.Android ?
+                    "Android WebView 초기화 실패. Android System WebView 업데이트와 플러그인 포함 여부를 확인해 주세요." :
+                    "WebView 초기화 실패: " + ex.GetType().Name;
+            }
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                applicationPaused = true;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                view?.SaveCookies();
+#endif
+                return;
+            }
+            if (!applicationPaused) return;
+            applicationPaused = false;
+            resumeRefreshPending = true;
+            resumeRefreshAt = Time.realtimeSinceStartup + .5f;
+            // Time spent outside the app is not a failed school request.
+            courseworkDeadline = 0;
+        }
+
+        private bool PreserveLoginInput => authenticationVisible && !IsAuthenticated;
+
+        private void HandleMobileBack()
+        {
+            var detail = GetComponent<NotificationDetailUI>();
+            if (detail != null && detail.IsNotificationPanelOpen) { detail.CloseNotifications(); return; }
+            if (view != null && authenticationVisible)
+            {
+                // The Android IME normally consumes its own Back event. Do not
+                // navigate away from an input if an Escape also reaches Unity.
+                if (view.IsKeyboardVisible) return;
+                if (IsAuthenticated) { HideAccountPage(); return; }
+                if (view.CanGoBack()) { view.GoBack(); return; }
+            }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                activity.Call<bool>("moveTaskToBack", true);
+#endif
         }
 
         private static bool SchoolPage(string value)
@@ -129,6 +178,32 @@ namespace WebNotifications
 
         private void Update()
         {
+            if (applicationPaused) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (Input.GetKeyDown(KeyCode.Escape)) { HandleMobileBack(); return; }
+#endif
+            if (view == null) return;
+            if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
+            {
+                networkWasUnavailable = true;
+                courseworkDeadline = 0;
+                Status = "인터넷 연결이 없습니다. 연결 후 다시 확인해 주세요.";
+                return;
+            }
+            if (networkWasUnavailable)
+            {
+                networkWasUnavailable = false;
+                resumeRefreshPending = true;
+                resumeRefreshAt = Time.realtimeSinceStartup + .5f;
+            }
+            if (resumeRefreshPending && Time.realtimeSinceStartup >= resumeRefreshAt)
+            {
+                resumeRefreshPending = false;
+                // Opening/closing the keyboard produces focus changes on Android.
+                // Resume checks must never reload an unfinished login form.
+                if (!PreserveLoginInput) Refresh();
+                else Status = "학교 로그인 화면에서 계속 진행하거나 재접속해 주세요.";
+            }
             if (courseworkDeadline > 0 && Time.unscaledTime >= courseworkDeadline)
             {
                 courseworkDeadline = 0;
@@ -137,7 +212,6 @@ namespace WebNotifications
                 courseworkStatus = "과제 조회가 지연되고 있습니다. 다시 확인하거나 학교 일정을 열어 주세요.";
                 SyncCourseOverview();
             }
-            if (view == null) return;
             if (authenticationVisible)
             {
                 ApplyWebViewMargins();
@@ -214,6 +288,12 @@ namespace WebNotifications
         public void Refresh()
         {
             if (view == null) return;
+            if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
+            {
+                networkWasUnavailable = true;
+                Status = "인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
+                return;
+            }
             // A false local flag can coexist with valid school cookies after an editor restart.
             // Visiting login directly then opens the school's "already logged in" dialog.
             if (!IsAuthenticated || !SchoolPage(currentUrl) ||
@@ -562,7 +642,7 @@ namespace WebNotifications
                 }
             }
             bool emptyConfirmed = enrolledCourses.Count > 0 && assignmentsConfirmed.Count == enrolledCourses.Count && !rosterPartial;
-            GUILayout.Label(tasks.Count == 0 ? emptyConfirmed ? "남은 과제 없음" : courseworkStatus : "마감이 가까운 과제부터 표시합니다. 제출 상태 미확인 일정은 학교에서 확인해 주세요.",
+            GUILayout.Label(networkWasUnavailable ? Status : tasks.Count == 0 ? emptyConfirmed ? "남은 과제 없음" : courseworkStatus : "마감이 가까운 과제부터 표시합니다. 제출 상태 미확인 일정은 학교에서 확인해 주세요.",
                 agendaLabel, GUILayout.Height(54 * scale));
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("일정 다시 확인", GUILayout.Height(34 * scale))) Refresh();

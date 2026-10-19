@@ -15,12 +15,107 @@ namespace WebNotifications
         public bool IsNotificationPanelOpen => showNotifications;
         private bool showNotifications, savedCameraMask;
         private int cameraMask;
+        private bool trackingPanelPointer, panelPointerMoved, pullingPanel, pointerFromHandle;
+        private int panelFingerId = -1, suppressPanelClicksUntil = -1, suppressCampusClicksUntil = -1;
+        private Vector2 panelPointerStart;
+        private float panelStartScroll, panelPull;
+        public bool SuppressCampusInput => Time.frameCount <= suppressCampusClicksUntil;
+        private Rect NotificationPanelRect
+        {
+            get
+            {
+                var content = CampusScreenLayout.ContentArea;
+                float padding = 12 * CampusScreenLayout.Scale;
+                return new Rect(content.x + padding, content.y + padding, Mathf.Max(1, content.width - 2 * padding),
+                    Mathf.Max(1, content.height - 2 * padding));
+            }
+        }
+
+        public void CloseNotifications()
+        {
+            showNotifications = false;
+            scroll = Vector2.zero;
+            ResetPanelGesture();
+            suppressCampusClicksUntil = Time.frameCount + 1;
+        }
+
+        private void ResetPanelGesture()
+        {
+            trackingPanelPointer = panelPointerMoved = pullingPanel = pointerFromHandle = false;
+            panelFingerId = -1;
+            panelPull = 0;
+        }
+
+        private void BeginPanelGesture(Vector2 position)
+        {
+            var panel = NotificationPanelRect;
+            ResetPanelGesture();
+            if (!panel.Contains(position)) return;
+            trackingPanelPointer = true;
+            panelPointerStart = position;
+            panelStartScroll = scroll.y;
+            pointerFromHandle = position.y < panel.y + 40 * CampusScreenLayout.Scale;
+        }
+
+        private void MovePanelGesture(Vector2 position)
+        {
+            if (!trackingPanelPointer) return;
+            var delta = position - panelPointerStart;
+            float scale = CampusScreenLayout.Scale;
+            if (delta.sqrMagnitude < 64 * scale * scale && !panelPointerMoved) return;
+            panelPointerMoved = true;
+            suppressPanelClicksUntil = Time.frameCount + 1;
+            bool vertical = Mathf.Abs(delta.y) > Mathf.Abs(delta.x) * 1.2f;
+            // A new downward gesture at the top dismisses; an existing list scroll
+            // remains a scroll even when it subsequently reaches the top.
+            pullingPanel = vertical && delta.y > 0 && (pointerFromHandle || panelStartScroll <= .5f);
+            panelPull = pullingPanel ? delta.y : 0;
+            if (!pullingPanel && !pointerFromHandle && vertical)
+                scroll.y = Mathf.Max(0, panelStartScroll - delta.y);
+        }
+
+        private void EndPanelGesture(Vector2 position, bool cancelled)
+        {
+            if (!trackingPanelPointer) return;
+            MovePanelGesture(position);
+            bool close = !cancelled && pullingPanel && panelPull >= 72 * CampusScreenLayout.Scale;
+            if (panelPointerMoved) suppressPanelClicksUntil = Time.frameCount + 1;
+            ResetPanelGesture();
+            if (close) CloseNotifications();
+        }
+
+        private void Update()
+        {
+            var school = manager != null && manager.useWebView ? manager.GetComponent<SmartleadWebView>() : null;
+            if (!showNotifications || school == null || !school.IsAuthenticated || school.IsSchoolPageVisible)
+            { ResetPanelGesture(); return; }
+            if (Input.touchCount > 1) { ResetPanelGesture(); return; }
+            if (Input.touchCount == 1)
+            {
+                var touch = Input.GetTouch(0);
+                var position = new Vector2(touch.position.x, Screen.height - touch.position.y);
+                if (touch.phase == TouchPhase.Began) { BeginPanelGesture(position); panelFingerId = touch.fingerId; }
+                if (touch.fingerId != panelFingerId) return;
+                if (touch.phase == TouchPhase.Moved) MovePanelGesture(position);
+                else if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
+                    EndPanelGesture(position, touch.phase == TouchPhase.Canceled);
+                return;
+            }
+            // Ignore touch-generated mouse events; desktop uses the left button.
+            if (panelFingerId >= 0) { ResetPanelGesture(); return; }
+            var mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+            if (Input.GetMouseButtonDown(0)) BeginPanelGesture(mouse);
+            if (Input.GetMouseButton(0)) MovePanelGesture(mouse);
+            if (Input.GetMouseButtonUp(0)) EndPanelGesture(mouse, false);
+            else if (trackingPanelPointer && !Input.GetMouseButton(0)) ResetPanelGesture();
+        }
         public void OpenCourseNotifications(string courseKey, string courseTitle)
         {
             var school = manager != null ? manager.GetComponent<SmartleadWebView>() : null;
             if (school == null || !school.IsAuthenticated || school.IsSchoolPageVisible) return;
             school.SelectCourse(courseKey, courseTitle);
             scroll = Vector2.zero;
+            ResetPanelGesture();
             showNotifications = true;
         }
         public void SelectSource(string id) { source = id; selected = null; scroll = Vector2.zero; }
@@ -77,25 +172,28 @@ namespace WebNotifications
                 GUI.Label(new Rect(safe.x + padding, safe.y + CampusScreenLayout.HeaderHeight + 20 * scale, safe.width - 2 * padding, 90 * scale), school.Status, wrapped);
                 return;
             }
-            GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - 2 * buttonWidth - 4 * padding, CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
-            if (GUI.Button(new Rect(right - 2 * buttonWidth - 8 * scale, buttonY, buttonWidth, buttonHeight), showNotifications ? "닫기" : "과제·알림", appButton))
-            {
-                showNotifications = !showNotifications;
-                if (showNotifications) { school.SelectCourse(null, null); scroll = Vector2.zero; }
-            }
+            GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - buttonWidth - 3 * padding, CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
             if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "계정", appButton))
             {
-                showNotifications = false;
+                CloseNotifications();
                 school.OpenAccountPage();
             }
             if (!showNotifications) return;
-            var content = CampusScreenLayout.ContentArea;
-            GUILayout.BeginArea(new Rect(content.x + padding, content.y + padding, content.width - 2 * padding,
-                content.height - 2 * padding), GUI.skin.box);
+            var panel = NotificationPanelRect;
+            panel.y += panelPull;
+            GUI.Box(panel, GUIContent.none);
+            GUI.Label(new Rect(panel.x + 10 * scale, panel.y + 7 * scale, panel.width - 20 * scale, 30 * scale),
+                "아래로 밀어 닫기", caption);
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && !panelPointerMoved && Time.frameCount > suppressPanelClicksUntil;
+            if (panelPointerMoved) GUIUtility.hotControl = 0;
+            GUILayout.BeginArea(new Rect(panel.x + 6 * scale, panel.y + 42 * scale, panel.width - 12 * scale,
+                Mathf.Max(1, panel.height - 48 * scale)));
             scroll = GUILayout.BeginScrollView(scroll);
             school.Draw(wrapped);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+            GUI.enabled = enabled;
         }
         private void OnGUI()
         {

@@ -13,7 +13,7 @@ const statusDoc = (status, due = '', extension = '') => ({
     ['제출 상태', status], ['마감일', due], ['연장 기한', extension]
   ].map(pair => ({querySelectorAll: () => pair.map(cell)})) : []
 });
-async function capture({api, pages = {}, loggedIn = true, stallBody = false} = {}) {
+async function capture({api, pages = {}, loggedIn = true, stallBody = false, bridge = 'windows'} = {}) {
   const events = [], requests = [];
   const context = {
     location: {origin, href: origin + '/local/ubion/user/index.php'},
@@ -39,6 +39,8 @@ async function capture({api, pages = {}, loggedIn = true, stallBody = false} = {
       return {ok: !!page, url: url.href, text: async () => key};
     }
   };
+  if (bridge === 'android' || bridge === 'both') context.window.Unity = {call: value => events.push(JSON.parse(value))};
+  if (bridge === 'android' || bridge === 'missing') delete context.window.chrome;
   runInNewContext(script, context);
   for (let i = 0; i < 30; i++) await new Promise(resolve => setImmediate(resolve));
   if (stallBody) await new Promise(resolve => setTimeout(resolve, 30));
@@ -46,6 +48,25 @@ async function capture({api, pages = {}, loggedIn = true, stallBody = false} = {
 }
 const roster = [{id: 7, fullname: '프로그래밍 (123456-01)'}, {id: 8, fullname: '그래픽스'}];
 const assignment = (id, cmid, name = '과제') => ({id, cmid, name, duedate: 1800000000, intro: '<p>과제 설명</p>'});
+
+test('Android bridge streams courses, assignments and deadlines with the same protocol and only one delivery', async () => {
+  const api = ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
+    if (methodname === 'mod_assign_get_assignments') return {courses: [{id: 7, assignments: [assignment(11, 91)]}]};
+    if (methodname === 'mod_assign_get_submission_status') return {lastattempt: {submission: {status: 'new'}}};
+    return {events: []};
+  };
+  const windows = await capture({api});
+  for (const bridge of ['android', 'both']) {
+    const result = await capture({api, bridge});
+    assert.deepEqual(result.events, windows.events);
+    const task = result.events.find(e => e.kind === 'assignment');
+    assert.equal(task.items[0].dueAt, 1800000000);
+    assert.ok(task.nonce && task.page.startsWith(origin));
+  }
+  const anonymous = await capture({api, bridge: 'android', loggedIn: false});
+  assert.equal(anonymous.requests.length, 0);
+});
 
 test('all enrolled courses are paginated independently of notifications, including empty courses', async () => {
   const {events, requests} = await capture({api: ({methodname, args}) => {

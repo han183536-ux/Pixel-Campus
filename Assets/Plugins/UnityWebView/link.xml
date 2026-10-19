@@ -1,0 +1,6 @@
+<linker>
+  <!-- Android's Java bridge reaches these methods through UnitySendMessage. -->
+  <assembly fullname="Assembly-CSharp-firstpass">
+    <type fullname="Gree.UnityWebView.WebViewObject" preserve="all" />
+  </assembly>
+</linker>

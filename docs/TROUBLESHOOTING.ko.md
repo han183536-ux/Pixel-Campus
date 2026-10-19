@@ -175,7 +175,7 @@ cd NotificationServer
 node --test capture.test.mjs coursework.test.mjs
 ```
 
-2026-10-19 변경 사항은 관련 수집 테스트 21개, Unity 컴파일, 실제 로그인 세션의 수집과 Game 뷰 표시를 확인했습니다. 테스트 개수와 실기기 검증 결과는 향후 변경 시 따로 갱신합니다. Android 실기기·홈 화면 위젯·백그라운드 수집을 검증한 기록은 아닙니다.
+2026-10-19 변경 사항은 관련 수집 테스트 23개, Unity 컴파일, Windows의 실제 로그인 세션 수집과 Game 뷰 표시를 확인했습니다. Android 브리지 자동 테스트와 Android 조건 소스 컴파일도 확인했으며, 추가한 파일과 검증 범위는 [Android 사용 안내](ANDROID.ko.md)에 기록했습니다. Android 실기기·홈 화면 위젯·백그라운드 수집을 검증한 기록은 아닙니다.
 
 ## 새 오류를 추가하는 양식
 

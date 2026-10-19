@@ -4,3 +4,15 @@ Files: dist/package/Assets/Plugins/WebViewObject.cs, dist/package/Assets/Plugins
 WebView.dll SHA256: 1B0F5FB0576CF59B51DDC91604675F5D0AC10E7709295905D708E1EA74DD5968
 Native binary unchanged; plugin import platform settings narrowed to Windows x64.
 Local C# modification: Windows backspace forwards VK_BACK down/up without a duplicate WM_CHAR; printable input remains unchanged.
+
+Android addition (2026-10-19):
+Source: https://github.com/gree/unity-webview
+Commit: 5604a7dc1beba961db00c84f0f68c979bf23092e (same revision as WebViewObject.cs)
+Upstream file: dist/package-nofragment/Assets/Plugins/Android/WebViewPlugin-release.aar.tmpl
+Local file: Android/WebViewPlugin.aar (renamed, binary unchanged)
+SHA256: AB1BD6CFA143142B6D67A10F2140CE04E2C169C0E8614DF986977EB82DBFD8A0
+Variant: nofragment/release; login, browsing and JavaScript bridge only; file input is not supported.
+The AAR contains Java classes and consumer ProGuard keep rules, with no native .so files or AndroidX dependency.
+Android-only PluginImporter metadata is supplied locally.
+AndroidCampusSetup.cs adds INTERNET/ACCESS_NETWORK_STATE and upstream-compatible hardware acceleration/IME settings to Unity's generated manifest.
+link.xml preserves WebViewObject callbacks used by Android UnitySendMessage.

@@ -9,7 +9,7 @@ const origin = 'https://smartlead.hallym.ac.kr';
 async function capture({text = JSON.stringify({code: '100', html: '<div class="media-lists"></div>'}),
   url = origin + '/theme/coursemosv2/action.php', status = 200, loginHtml = false,
   lateMoodleResult = false, loggedIn = true, loginLink = false, schoolRows = [],
-  historyRows = null, historyEmpty = false, historyLogin = false} = {}) {
+  historyRows = null, historyEmpty = false, historyLogin = false, bridge = 'windows'} = {}) {
   const events = [], requests = [];
   let resolveMoodle;
   const moodleResult = new Promise(resolve => { resolveMoodle = resolve; });
@@ -46,6 +46,8 @@ async function capture({text = JSON.stringify({code: '100', html: '<div class="m
       }
     }
   };
+  if (bridge === 'android' || bridge === 'both') context.window.Unity = {call: value => events.push(JSON.parse(value))};
+  if (bridge === 'android' || bridge === 'missing') delete context.window.chrome;
   if (lateMoodleResult) context.require = (_modules, callback) => callback({call: () => [moodleResult]});
   runInNewContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
@@ -70,6 +72,19 @@ test('school notification request uses the required AJAX header and preserves se
   assert.deepEqual(events.filter(e => e.source !== 'school_history' && e.kind !== 'session').map(e => [e.kind, e.source, e.total]), [
     ['notifications', 'school_api', 0], ['messages', 'school_api', 0]
   ]);
+});
+
+test('Android Unity.call delivers the same authenticated notification packets as Windows without duplicate delivery', async () => {
+  const windows = await capture();
+  const android = await capture({bridge: 'android'});
+  const both = await capture({bridge: 'both'});
+  assert.deepEqual(android.events, windows.events);
+  assert.deepEqual(both.events, windows.events);
+  assert.ok(android.events.every(event => event.nonce && event.page.startsWith(origin)));
+  const anonymous = await capture({bridge: 'android', loggedIn: false});
+  assert.equal(anonymous.events[0].kind, 'authentication');
+  const unavailable = await capture({bridge: 'missing'});
+  assert.equal(unavailable.events.length, 0);
 });
 
 test('HTML and malformed responses report failure without reporting an empty school inbox', async () => {
