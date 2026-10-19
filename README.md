@@ -48,6 +48,33 @@ Unity에서 한림 SmartLEAD의 **과목별 알림·쪽지와 과제 일정**을
 
 과목 목록의 전체 범위를 보장할 수 없는 대체 조회는 **전체 과목 확인 필요**로 표시합니다. 조회 실패를 과제 0건으로 처리하지 않으며, 45초 이상 지연되면 계속 대기하는 대신 안내를 표시합니다. 알림 기록은 학교에서 다시 확인할 수 있도록 **학교 알림 기록 보기**를 제공합니다.
 
+## 사용한 방법
+
+| 영역 | 구현 방법 | 주요 파일 |
+| --- | --- | --- |
+| 세로 화면 | Game 뷰의 현재 빌드 대상 그룹에 540×960 미리보기 선택, 안전 영역과 화면 크기 반영 | `PortraitCampusSetup.cs`, `CampusScreenLayout.cs` |
+| 학교 로그인 | UnityWebView·WebView2의 로그인 세션 재사용, 알림 페이지 진입 후 계정 상태 확인 | `SmartleadWebView.cs` |
+| 알림 수집 | 학교 알림 목록·기록 페이지 조회, Moodle 보조 API, 로그인 여부·출처·요청 식별 값 검증 | `SmartleadCapture.txt` |
+| 과제 수집 | Moodle API 시도 후 실제 Coursemos 대시보드·과제 표 조회, 캘린더 별도 수집 | `SmartleadCoursework.txt` |
+| 과목·일정 표시 | 과목 식별 정보로 큐브 구성, 클릭·터치로 상세 열기, 제출 상태 필터링과 마감 정렬 | `SmartleadCourseCubes.cs`, `NotificationDetailUI.cs`, `SmartleadWebView.cs` |
+| 남은 시간 | 마감 시각을 Unix 시간으로 변환하고 현재 시각과 비교, 한국 시간으로 마감일 표시 | `SmartleadCoursework.txt`, `CampusScreenLayout.cs` |
+| 검증 | Node.js 수집 테스트, Unity 컴파일, 로그인된 실제 WebView와 Game 뷰 확인 | `NotificationServer/capture.test.mjs`, `NotificationServer/coursework.test.mjs` |
+
+## 오류 메시지와 해결 기록
+
+다음은 개발 중 확인한 오류와 화면 증상입니다. 발생 조건, 원인, 수정 파일, 검증 방법과 새 기록 양식은 [문제 해결 기록](docs/TROUBLESHOOTING.ko.md)에 정리했습니다. 화면의 안내 문구와 실제 예외·서버 오류는 구분해 기록합니다.
+
+| 오류 메시지 또는 증상 | 원인과 처리 | 상세 |
+| --- | --- | --- |
+| `NullReferenceException: Object reference not set to an instance of an object` | Unity에 없는 `GetCurrentGroup()`을 리플렉션으로 호출함. `currentGroup` 속성으로 수정 | [PC-001](docs/TROUBLESHOOTING.ko.md#pc-001) |
+| 재접속 시 이미 로그인됐다는 확인창에서 로그아웃을 요구 | 세션이 남아 있는데 로그인 페이지를 직접 열었음. 알림 페이지에서 기존 세션 확인 | [PC-002](docs/TROUBLESHOOTING.ko.md#pc-002) |
+| `과제 확인 중…`이 계속 표시됨 | 조회 실패가 알림에서 생성된 과목 카드에 전달되지 않음. 실패·완료 상태와 시간 초과 처리 보완 | [PC-003](docs/TROUBLESHOOTING.ko.md#pc-003) |
+| `수강 과목 조회 실패 · 학교에서 다시 확인해 주세요.` | 과목 API와 HTML 선택자가 실제 학교 환경과 맞지 않음. 대시보드·과제 표 구조에 맞춰 수정 | [PC-004](docs/TROUBLESHOOTING.ko.md#pc-004) |
+| `데이터베이스 테이블 external_functions 에서 데이터 레코드를 찾지 못 함` | 요청한 과목 API 함수가 학교 서버에 등록되지 않음. API 실패 시 HTML 조회 사용 | [PC-004](docs/TROUBLESHOOTING.ko.md#pc-004) |
+| 과제를 찾았지만 마감일·제출 여부를 읽지 못함 | 숫자 날짜와 `제출 여부` 항목을 지원하지 않았음. 실제 표기 형식 추가 | [PC-005](docs/TROUBLESHOOTING.ko.md#pc-005) |
+
+기존 연결 문서의 AJAX 헤더 문제와 개발 검증 중의 `NETSDK1004`도 상세 기록에 포함했습니다. GitHub에는 비밀번호·쿠키·세션 키·개인 알림 원문 대신 재현에 필요한 오류 문구와 익명화한 예시를 기록합니다.
+
 ## 지원 환경과 개발 범위
 
 - **현재 검증 환경:** Windows x64, Unity 6.3 LTS 에디터, WebView2 Runtime.
@@ -75,6 +102,7 @@ node --test capture.test.mjs coursework.test.mjs
 - `ProjectSettings/`: Unity 프로젝트 설정
 - `NotificationServer/`: 선택적으로 사용하는 로컬 서버와 테스트
 - `BrowserBridge/`: 브라우저 확장 기반의 보조 연결 코드
+- `docs/TROUBLESHOOTING.ko.md`: 사용한 방법, 오류 원인·해결·검증 내역과 추가 기록 양식
 
 `Library`, `Temp`, 로그, 빌드 결과물과 개인 계정의 알림 데이터는 Git에서 제외합니다. 옆에 있는 별도 CLI 비교 프로젝트도 이 저장소에는 포함하지 않습니다. Unity에서 `Library` 등은 프로젝트를 열 때 다시 생성합니다.
 
@@ -84,7 +112,7 @@ Unity에서 씬과 에셋을 저장한 뒤 프로젝트 폴더의 PowerShell에�
 
 ```powershell
 git status
-git add Assets Packages ProjectSettings NotificationServer BrowserBridge README.md WEBVIEW-SETUP.ko.md .gitignore .gitattributes
+git add Assets Packages ProjectSettings NotificationServer BrowserBridge docs README.md WEBVIEW-SETUP.ko.md .gitignore .gitattributes
 git commit -m "Describe the change"
 git push
 ```
