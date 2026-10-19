@@ -10,9 +10,34 @@
     if (schoolSucceeded && data.kind === 'messages' && data.source !== 'school_api') return;
     if (schoolSucceeded && data.kind === 'notifications' &&
       !['school_api', 'school_history', 'message_api'].includes(data.source)) return;
-    window.chrome?.webview?.postMessage(JSON.stringify({...data, nonce, page: location.href}));
+    let payload = JSON.stringify({...data, nonce, page: location.href});
+    // Stay within Unity's bridge message limit when full previews are included.
+    while (payload.length > 60000 && data.items?.length) {
+      data.items.pop();
+      data.historyLimited = true;
+      payload = JSON.stringify({...data, nonce, page: location.href});
+    }
+    window.chrome?.webview?.postMessage(payload);
   };
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  function detailInfo(value = {}, row = null) {
+    const html = value.fullmessagehtml;
+    const text = html ? new DOMParser().parseFromString(String(html), 'text/html').body?.textContent :
+      value.fullmessage || value.smallmessage || row?.querySelector('.media-body-message, .media-body')?.textContent || row?.textContent;
+    const body = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    const candidate = value.contexturl || row?.querySelector('a.move_link[href], a[href]')?.getAttribute('href') ||
+      (row?.matches('a[href]') ? row.getAttribute('href') : '');
+    let url = '';
+    if (candidate && !candidate.startsWith('#')) {
+      try {
+        const parsed = new URL(candidate, location.href);
+        if (parsed.origin === location.origin && !parsed.username && !parsed.password) url = parsed.href;
+      } catch { /* Ignore invalid original links. */ }
+    }
+    const timestamp = input => Number.isSafeInteger(Number(input)) && Number(input) > 0 ? Number(input) : 0;
+    return {body, url, dueAt: timestamp(value.duedate || row?.getAttribute('data-duedate')),
+      createdAt: timestamp(value.timecreated || row?.getAttribute('data-timecreated'))};
+  }
   function courseText(value) {
     const match = clean(value).match(/^(.+?)\s*\((\d{6}-\d{2})\)\s*[-–—]\s*(.+)$/);
     return match ? {courseName: match[1].trim(), courseCode: match[2], title: match[3].trim()} : null;
@@ -61,7 +86,7 @@
       sender: type === 'message' ? clean(heading?.textContent) : '',
       title: textCourse && course.courseName === textCourse.courseName && course.courseCode === textCourse.courseCode
         ? textCourse.title : rawTitle,
-      type, read, readKnown: read || unread, ...course
+      type, read, readKnown: read || unread, ...course, ...detailInfo({}, row)
     };
   }
   const loginLink = document.querySelector('#page-header a[href*="/login/index.php"], header a[href*="/login/index.php"]');
@@ -213,7 +238,7 @@
     const entries = root ? [...root.querySelectorAll('[data-region="notification-content-item-container"], [data-region="notification"], .notification-message')] : [];
     const items = entries.filter(el => !el.matches('.hidden,[aria-hidden="true"]'))
       .map(el => ({title: clean(el.textContent), read: el.classList.contains('read'),
-        readKnown: el.matches('.read,.unread'), ...courseInfo({}, el)})).filter(item => item.title).slice(0, 30);
+        readKnown: el.matches('.read,.unread'), ...courseInfo({}, el), ...detailInfo({}, el)})).filter(item => item.title).slice(0, 30);
     send({kind: 'notifications', source: 'dom', found: !!root,
       count: Math.max(badgeCount, items.filter(item => item.readKnown && !item.read).length),
       total: items.length, unreadUnknown: items.some(item => !item.readKnown), items});
@@ -231,7 +256,7 @@
           apiSucceeded = true;
           const items = result.notifications.map(n => ({
             title: clean(n.subject || n.smallmessage), read: !!n.read,
-            readKnown: typeof n.read === 'boolean' || n.read === 0 || n.read === 1, ...courseInfo(n)
+            readKnown: typeof n.read === 'boolean' || n.read === 0 || n.read === 1, ...courseInfo(n), ...detailInfo(n)
           })).filter(item => item.title).slice(0, 30);
           popupTotal = items.length;
           if (!historyPreferred) send({kind: 'notifications', source: 'popup_api', found: true,
@@ -256,8 +281,8 @@
               send({kind: 'api_status', error: 'message_history_unavailable'});
               return;
             }
-            const items = [...unread.map(n => ({title: clean(n.subject || n.smallmessage), read: false, readKnown: true, ...courseInfo(n)})),
-              ...read.map(n => ({title: clean(n.subject || n.smallmessage), read: true, readKnown: true, ...courseInfo(n)}))]
+            const items = [...unread.map(n => ({id: Number(n.id) || 0, title: clean(n.subject || n.smallmessage), read: false, readKnown: true, ...courseInfo(n), ...detailInfo(n)})),
+              ...read.map(n => ({id: Number(n.id) || 0, title: clean(n.subject || n.smallmessage), read: true, readKnown: true, ...courseInfo(n), ...detailInfo(n)}))]
               .filter(item => item.title).slice(0, 60);
             if (items.length > popupTotal) {
               apiSucceeded = true;
@@ -284,7 +309,7 @@
               id: Number(message.id) || 0,
               sender: clean(message.userfromfullname || ''),
               title: clean(message.subject || message.smallmessage || message.fullmessage || ''),
-              read: wasRead, readKnown: true, ...courseInfo(message)
+              read: wasRead, readKnown: true, ...courseInfo(message), ...detailInfo(message)
             });
             const items = [...unread.map(m => asItem(m, false)),
               ...read.map(m => asItem(m, true))].filter(item => item.sender || item.title);

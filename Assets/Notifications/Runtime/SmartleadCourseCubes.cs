@@ -7,238 +7,181 @@ namespace WebNotifications
 {
     public sealed class CourseCubeNotice
     {
-        public int courseId;
-        public string courseName, courseCode;
+        public int courseId, notifications, messages, pendingAssignments, unknownAssignments;
+        public long nextDue;
+        public bool assignmentsKnown, assignmentsFailed, notificationsKnown;
+        public string courseName, courseCode, nextTaskTitle;
+        public string Key => CourseKey(courseId, courseName, courseCode);
+        public static string CourseKey(int id, string name, string code)
+        {
+            if (!string.IsNullOrWhiteSpace(code)) return "code:" + code.Trim();
+            if (id > 0) return "id:" + id;
+            return string.IsNullOrWhiteSpace(name) ? null : "name:" + name.Trim();
+        }
+        public string Summary
+        {
+            get
+            {
+                if (pendingAssignments + unknownAssignments > 0)
+                    return (pendingAssignments > 0 ? "미제출 과제 " + pendingAssignments : "제출 확인 필요 " + unknownAssignments) +
+                        (pendingAssignments > 0 && unknownAssignments > 0 ? " · 확인 필요 " + unknownAssignments : "") +
+                        "\n" + (string.IsNullOrWhiteSpace(nextTaskTitle) ? "" : nextTaskTitle.Length > 18 ? nextTaskTitle.Substring(0, 18) + "…\n" : nextTaskTitle + "\n") +
+                        CampusScreenLayout.RemainingTime(nextDue) +
+                        (notifications + messages > 0 ? " · 알림 " + (notifications + messages) : "");
+                if (!assignmentsKnown) return assignmentsFailed ? "과제 확인 필요" : "과제 확인 중…";
+                if (notifications + messages > 0) return "알림 " + (notifications + messages) + "건";
+                return notificationsKnown ? "알림 없음" : "알림 확인 중…";
+            }
+        }
     }
 
-    // One real 3D cube per identified course in the map camera's viewport.
     public class SmartleadCourseCubes : MonoBehaviour
     {
         private sealed class Course
         {
-            public string key, name, code;
-            public int notifications, messages;
+            public CourseCubeNotice data;
             public GameObject cube;
             public Material material;
         }
-        private static readonly Color[] Palette = {
-            new Color(.15f, .78f, .85f), new Color(1f, .57f, .22f),
-            new Color(.66f, .43f, .95f), new Color(.35f, .82f, .42f),
-            new Color(1f, .38f, .49f), new Color(.32f, .57f, 1f),
-            new Color(.97f, .82f, .22f), new Color(.95f, .42f, .78f)
-        };
-        private readonly List<CourseCubeNotice> notificationItems = new List<CourseCubeNotice>();
-        private readonly List<CourseCubeNotice> messageItems = new List<CourseCubeNotice>();
         private readonly Dictionary<string, Course> courses = new Dictionary<string, Course>(StringComparer.Ordinal);
         private readonly Dictionary<string, Color> colors = new Dictionary<string, Color>(StringComparer.Ordinal);
         private readonly List<Course> ordered = new List<Course>();
         private GameObject cubeRoot;
         private Camera mapCamera;
         private GUIStyle label;
-        private bool visible = true;
-        private int unknownCount, page, columns = 1, rows = 1;
-        private float cellWidth, cellHeight;
-        private static float HeaderHeight => 46f * CampusScreenLayout.Scale;
+        private bool visible = true, dragging;
+        private Vector2 scroll, touchStart;
+        private float touchScroll, cellWidth, cellHeight, contentHeight, gridHeight;
+        private int columns = 3, touchId = -1;
+        private float HeaderHeight => 30f * CampusScreenLayout.Scale;
         public int CourseCount => ordered.Count;
 
-        public void SetNotifications(IEnumerable<CourseCubeNotice> items)
+        public void SetOverview(IEnumerable<CourseCubeNotice> items)
         {
-            notificationItems.Clear();
-            if (items != null) notificationItems.AddRange(items);
-            Synchronize();
-        }
-
-        public void SetMessages(IEnumerable<CourseCubeNotice> items)
-        {
-            messageItems.Clear();
-            if (items != null) messageItems.AddRange(items);
-            Synchronize();
-        }
-
-        public void Clear()
-        {
-            notificationItems.Clear(); messageItems.Clear(); page = 0;
-            Synchronize();
-        }
-
-        public void SetVisible(bool value)
-        {
-            visible = value;
-            if (cubeRoot != null) cubeRoot.SetActive(value);
-        }
-
-        private static string Key(CourseCubeNotice item)
-        {
-            if (item == null) return null;
-            if (!string.IsNullOrWhiteSpace(item.courseCode)) return "code:" + item.courseCode.Trim();
-            if (item.courseId > 0) return "id:" + item.courseId;
-            if (!string.IsNullOrWhiteSpace(item.courseName)) return "name:" + item.courseName.Trim();
-            return null;
-        }
-
-        private void Synchronize()
-        {
-            var wanted = new Dictionary<string, Course>(StringComparer.Ordinal);
-            unknownCount = 0;
-            AddItems(wanted, notificationItems, false);
-            AddItems(wanted, messageItems, true);
-            foreach (var existing in courses)
-                if (!wanted.ContainsKey(existing.Key))
-                {
-                    Release(existing.Value.cube);
-                    Release(existing.Value.material);
-                }
-            ordered.Clear();
-            foreach (var entry in wanted)
-            {
-                var course = entry.Value;
-                if (courses.TryGetValue(entry.Key, out var previous))
-                {
-                    course.cube = previous.cube;
-                    course.material = previous.material;
-                }
-                ordered.Add(course);
-            }
-            ordered.Sort((a, b) => StringComparer.Ordinal.Compare(a.key, b.key));
-            courses.Clear();
-            foreach (var course in ordered)
-            {
-                if (course.cube == null) CreateCube(course);
-                course.cube.name = "SmartLEAD Course · " + course.name + " " + course.code;
-                courses.Add(course.key, course);
-            }
-            Layout();
-        }
-
-        private void AddItems(Dictionary<string, Course> wanted, List<CourseCubeNotice> items, bool isMessage)
-        {
+            var wanted = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in items)
             {
-                var key = Key(item);
-                if (key == null) { unknownCount++; continue; }
-                if (!wanted.TryGetValue(key, out var course))
+                if (item?.Key == null || !wanted.Add(item.Key)) continue;
+                if (!courses.TryGetValue(item.Key, out var course))
                 {
-                    course = new Course { key = key,
-                        name = string.IsNullOrWhiteSpace(item.courseName) ?
-                            item.courseId > 0 ? "온라인 강의실 ID " + item.courseId : "과목 " + item.courseCode : item.courseName.Trim(),
-                        code = item.courseCode?.Trim() ?? "" };
-                    wanted.Add(key, course);
+                    course = new Course();
+                    courses.Add(item.Key, course);
+                    CreateCube(course, item.Key);
                 }
-                else if (!string.IsNullOrWhiteSpace(item.courseName)) course.name = item.courseName.Trim();
-                if (isMessage) course.messages++; else course.notifications++;
+                course.data = item;
+                course.cube.name = "SmartLEAD Course · " + item.courseName;
             }
+            var removed = new List<string>();
+            foreach (var entry in courses) if (!wanted.Contains(entry.Key)) removed.Add(entry.Key);
+            foreach (var key in removed) { Release(courses[key].cube); Release(courses[key].material); courses.Remove(key); }
+            ordered.Clear(); ordered.AddRange(courses.Values);
+            ordered.Sort((a, b) => {
+                int taskOrder = (b.data.pendingAssignments + b.data.unknownAssignments > 0).CompareTo(a.data.pendingAssignments + a.data.unknownAssignments > 0);
+                if (taskOrder != 0) return taskOrder;
+                if (a.data.pendingAssignments + a.data.unknownAssignments > 0)
+                {
+                    int deadline = CampusScreenLayout.CompareDeadlines(a.data.nextDue, b.data.nextDue);
+                    if (deadline != 0) return deadline;
+                }
+                return StringComparer.Ordinal.Compare(a.data.courseName, b.data.courseName);
+            });
+            Layout();
         }
+        public void Clear() { SetOverview(Array.Empty<CourseCubeNotice>()); scroll = Vector2.zero; }
+        public void SetVisible(bool value) { visible = value; if (cubeRoot != null) cubeRoot.SetActive(value); }
 
-        private void CreateCube(Course course)
+        private void CreateCube(Course course, string key)
         {
-            if (cubeRoot == null)
+            if (cubeRoot == null) { cubeRoot = new GameObject("SmartLEAD Course Cubes"); cubeRoot.transform.SetParent(transform, false); cubeRoot.SetActive(visible); }
+            if (!colors.TryGetValue(key, out var color))
             {
-                cubeRoot = new GameObject("SmartLEAD Course Cubes");
-                cubeRoot.transform.SetParent(transform, false);
-                cubeRoot.SetActive(visible);
-            }
-            if (!colors.TryGetValue(course.key, out var color))
-            {
-                var index = colors.Count;
-                color = index < Palette.Length ? Palette[index] : Color.HSVToRGB(Mathf.Repeat(index * .618034f, 1f), .65f, .95f);
-                colors.Add(course.key, color);
+                color = Color.HSVToRGB(Mathf.Repeat(colors.Count * .618034f + .5f, 1f), .6f, .95f);
+                colors.Add(key, color);
             }
             course.cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             course.cube.transform.SetParent(cubeRoot.transform, false);
             var collider = course.cube.GetComponent<Collider>();
             if (collider != null) { collider.enabled = false; Release(collider); }
-            var shader = Shader.Find("Standard") ?? Shader.Find("Unlit/Color");
-            course.material = new Material(shader) { color = color };
-            if (course.material.HasProperty("_Glossiness")) course.material.SetFloat("_Glossiness", .15f);
-            if (course.material.HasProperty("_EmissionColor"))
-            {
-                course.material.EnableKeyword("_EMISSION");
-                course.material.SetColor("_EmissionColor", color * .2f);
-            }
+            course.material = new Material(Shader.Find("Standard") ?? Shader.Find("Unlit/Color")) { color = color };
             var renderer = course.cube.GetComponent<Renderer>();
             renderer.sharedMaterial = course.material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
-
+        private void Update()
+        {
+            var detail = GetComponent<NotificationDetailUI>();
+            if (!visible || mapCamera == null || detail != null && detail.IsNotificationPanelOpen) return;
+            if (Input.touchCount != 1) { touchId = -1; dragging = false; return; }
+            var touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began && mapCamera.pixelRect.Contains(touch.position))
+            { touchId = touch.fingerId; touchStart = touch.position; touchScroll = scroll.y; dragging = false; }
+            if (touch.fingerId != touchId) return;
+            if ((touch.position - touchStart).sqrMagnitude > Mathf.Pow(8 * CampusScreenLayout.Scale, 2)) dragging = true;
+            if (dragging) scroll.y = Mathf.Clamp(touchScroll + touch.position.y - touchStart.y, 0,
+                Mathf.Max(0, contentHeight - mapCamera.pixelHeight + HeaderHeight));
+        }
         private void LateUpdate() { Layout(); }
-
         private void Layout()
         {
             var detail = GetComponent<NotificationDetailUI>();
             mapCamera = detail != null && detail.mapCamera != null ? detail.mapCamera : Camera.main;
-            if (mapCamera == null || mapCamera.pixelWidth < 1 || mapCamera.pixelHeight < 1) return;
-            columns = Mathf.Clamp(Mathf.FloorToInt(mapCamera.pixelWidth / 190f), 1, 4);
-            rows = Mathf.Clamp(Mathf.FloorToInt((mapCamera.pixelHeight - HeaderHeight) / 150f), 1, 3);
-            rows = Mathf.Min(rows, Mathf.Max(1, Mathf.CeilToInt(ordered.Count / (float)columns)));
-            var perPage = columns * rows;
-            page = Mathf.Clamp(page, 0, Mathf.Max(0, Mathf.CeilToInt(ordered.Count / (float)perPage) - 1));
-            cellWidth = mapCamera.pixelWidth / (float)columns;
-            cellHeight = Mathf.Max(1, (mapCamera.pixelHeight - HeaderHeight - 18f) / rows);
+            if (mapCamera == null || mapCamera.pixelHeight < 1) return;
+            float scale = CampusScreenLayout.Scale;
+            columns = Mathf.Clamp(Mathf.FloorToInt(mapCamera.pixelWidth / (120 * scale)), 2, 5);
+            cellWidth = (mapCamera.pixelWidth - 18 * scale) / columns;
+            cellHeight = 148 * scale;
+            gridHeight = Mathf.CeilToInt(ordered.Count / (float)columns) * cellHeight;
+            var school = GetComponent<SmartleadWebView>();
+            contentHeight = gridHeight + 12 * scale + (school != null ? school.AgendaHeight : 0);
+            scroll.y = Mathf.Clamp(scroll.y, 0, Mathf.Max(0, contentHeight - mapCamera.pixelHeight + HeaderHeight));
             var distance = Mathf.Max(mapCamera.nearClipPlane + 4f, 8f);
             var worldPerPixel = mapCamera.orthographic ? 2f * mapCamera.orthographicSize / mapCamera.pixelHeight :
                 2f * distance * Mathf.Tan(mapCamera.fieldOfView * Mathf.Deg2Rad * .5f) / mapCamera.pixelHeight;
-            var size = Mathf.Max(12f, Mathf.Min(cellWidth * .36f, cellHeight * .35f, 100f)) * worldPerPixel;
             for (int index = 0; index < ordered.Count; index++)
             {
-                var slot = index - page * perPage;
-                var shown = visible && slot >= 0 && slot < perPage;
+                float top = HeaderHeight + index / columns * cellHeight - scroll.y;
                 var cube = ordered[index].cube;
+                bool shown = visible && (detail == null || !detail.IsNotificationPanelOpen) && top >= HeaderHeight - 1 && top + 46 * scale < mapCamera.pixelHeight;
                 cube.SetActive(shown);
                 if (!shown) continue;
-                float x = (slot % columns + .5f) / columns;
-                float y = 1f - (HeaderHeight + (slot / columns + .36f) * cellHeight) / mapCamera.pixelHeight;
+                float x = (index % columns + .5f) * cellWidth / mapCamera.pixelWidth;
+                float y = 1f - (top + 25 * scale) / mapCamera.pixelHeight;
                 cube.transform.position = mapCamera.ViewportToWorldPoint(new Vector3(x, y, distance));
                 cube.transform.rotation = mapCamera.transform.rotation * Quaternion.Euler(20f, 32f, 0f);
-                cube.transform.localScale = Vector3.one * size;
+                cube.transform.localScale = Vector3.one * Mathf.Min(cellWidth * .26f, 34 * scale) * worldPerPixel;
             }
         }
-
         private void OnGUI()
         {
-            if (!visible || mapCamera == null || ordered.Count == 0) return;
+            if (!visible || mapCamera == null) return;
             var detail = GetComponent<NotificationDetailUI>();
             if (detail != null && detail.IsNotificationPanelOpen) return;
-            if (label == null) label = new GUIStyle(GUI.skin.label) {
-                alignment = TextAnchor.UpperCenter, wordWrap = true, richText = false, fontSize = 13
-            };
-            label.fontSize = Mathf.RoundToInt(13 * CampusScreenLayout.Scale);
+            float scale = CampusScreenLayout.Scale;
+            if (label == null) label = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, wordWrap = true, richText = false };
+            label.fontSize = Mathf.RoundToInt(10 * scale);
             var viewport = mapCamera.pixelRect;
-            float left = viewport.x, top = Screen.height - viewport.yMax;
-            GUI.Label(new Rect(left + 8, top + 8, viewport.width - 16, 24), "과목별 알림 · " + ordered.Count + "개 과목", label);
-            var perPage = columns * rows;
-            var pages = Mathf.CeilToInt(ordered.Count / (float)perPage);
-            if (pages > 1)
+            float top = Screen.height - viewport.yMax;
+            GUI.Label(new Rect(viewport.x, top + 4 * scale, viewport.width, HeaderHeight), "전체 " + ordered.Count + "과목 · 미제출 과제 우선", label);
+            var area = new Rect(viewport.x, top + HeaderHeight, viewport.width, Mathf.Max(1, viewport.height - HeaderHeight));
+            scroll = GUI.BeginScrollView(area, scroll, new Rect(0, 0, columns * cellWidth, Mathf.Max(area.height, contentHeight)));
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && !dragging;
+            for (int index = 0; index < ordered.Count; index++)
             {
-                if (GUI.Button(new Rect(left + 8, top + 8, 32, 24), "‹")) { page = (page + pages - 1) % pages; Layout(); }
-                if (GUI.Button(new Rect(viewport.xMax - 40, top + 8, 32, 24), "›")) { page = (page + 1) % pages; Layout(); }
-                GUI.Label(new Rect(left + 8, top + 30, viewport.width - 16, 18), (page + 1) + " / " + pages, label);
+                var item = ordered[index].data;
+                var tile = new Rect(index % columns * cellWidth + 3 * scale, index / columns * cellHeight, cellWidth - 6 * scale, cellHeight);
+                var title = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
+                GUI.Label(new Rect(tile.x, tile.y + 49 * scale, tile.width, tile.height - 49 * scale), title + "\n" + item.Summary, label);
+                if (detail != null && GUI.Button(tile, GUIContent.none, GUIStyle.none)) detail.OpenCourseNotifications(item.Key, title);
             }
-            for (int slot = 0; slot < perPage && page * perPage + slot < ordered.Count; slot++)
-            {
-                var course = ordered[page * perPage + slot];
-                var rect = new Rect(left + slot % columns * cellWidth + 6,
-                    top + HeaderHeight + (slot / columns + .64f) * cellHeight, cellWidth - 12, cellHeight * .36f);
-                var title = course.name + (string.IsNullOrEmpty(course.code) ? "" : "\n" + course.code);
-                GUI.Label(rect, title + "\n알림 " + course.notifications + "건 · 쪽지 " + course.messages + "건", label);
-            }
-            if (unknownCount > 0)
-                GUI.Label(new Rect(left + 8, top + viewport.height - 18, viewport.width - 16, 18),
-                    "과목 미확인 " + unknownCount + "건", label);
+            var school = GetComponent<SmartleadWebView>();
+            if (school != null) school.DrawUpcomingAgenda(new Rect(8 * scale, gridHeight + 12 * scale,
+                columns * cellWidth - 16 * scale, school.AgendaHeight));
+            GUI.enabled = enabled;
+            GUI.EndScrollView();
         }
-
-        private static void Release(UnityEngine.Object value)
-        {
-            if (value == null) return;
-            if (Application.isPlaying) Destroy(value); else DestroyImmediate(value);
-        }
-
-        private void OnDestroy()
-        {
-            foreach (var course in ordered) Release(course.material);
-            Release(cubeRoot);
-        }
+        private static void Release(UnityEngine.Object value) { if (value == null) return; if (Application.isPlaying) Destroy(value); else DestroyImmediate(value); }
+        private void OnDestroy() { foreach (var course in ordered) Release(course.material); Release(cubeRoot); }
     }
 }
-
-

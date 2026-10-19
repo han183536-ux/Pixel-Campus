@@ -15,6 +15,14 @@ namespace WebNotifications
         public bool IsNotificationPanelOpen => showNotifications;
         private bool showNotifications, savedCameraMask;
         private int cameraMask;
+        public void OpenCourseNotifications(string courseKey, string courseTitle)
+        {
+            var school = manager != null ? manager.GetComponent<SmartleadWebView>() : null;
+            if (school == null || !school.IsAuthenticated || school.IsSchoolPageVisible) return;
+            school.SelectCourse(courseKey, courseTitle);
+            scroll = Vector2.zero;
+            showNotifications = true;
+        }
         public void SelectSource(string id) { source = id; selected = null; scroll = Vector2.zero; }
         private float PanelWidth => Mathf.Min(440, Screen.width * .42f);
         private void LateUpdate()
@@ -49,7 +57,7 @@ namespace WebNotifications
             appTitle.fontSize = Mathf.RoundToInt(17 * scale);
             appButton.fontSize = Mathf.RoundToInt(13 * scale);
             caption.fontSize = Mathf.RoundToInt(11 * scale);
-            wrapped.fontSize = Mathf.RoundToInt(14 * scale);
+            wrapped.fontSize = Mathf.RoundToInt(12 * scale);
             bool campus = school.IsAuthenticated && !school.IsSchoolPageVisible;
             GUI.Box(new Rect(safe.x, safe.y, safe.width, CampusScreenLayout.HeaderHeight), GUIContent.none);
             float buttonWidth = 62 * scale, buttonHeight = 38 * scale;
@@ -70,7 +78,11 @@ namespace WebNotifications
                 return;
             }
             GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - 2 * buttonWidth - 4 * padding, CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
-            if (GUI.Button(new Rect(right - 2 * buttonWidth - 8 * scale, buttonY, buttonWidth, buttonHeight), showNotifications ? "닫기" : "알림", appButton)) showNotifications = !showNotifications;
+            if (GUI.Button(new Rect(right - 2 * buttonWidth - 8 * scale, buttonY, buttonWidth, buttonHeight), showNotifications ? "닫기" : "과제·알림", appButton))
+            {
+                showNotifications = !showNotifications;
+                if (showNotifications) { school.SelectCourse(null, null); scroll = Vector2.zero; }
+            }
             if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "계정", appButton))
             {
                 showNotifications = false;

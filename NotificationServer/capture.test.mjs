@@ -139,6 +139,39 @@ function historyRow(id, read, title) {
   };
 }
 
+test('notification details retain longer body text and only expose school original links', async () => {
+  const body = '상세 공지 내용 '.repeat(100);
+  const makeRow = href => {
+    const row = historyRow(12, false, body);
+    const originalQuery = row.querySelector;
+    row.querySelector = selector => selector === 'a.move_link[href], a[href]' ?
+      {getAttribute: () => href} : originalQuery(selector);
+    return row;
+  };
+  const {events} = await capture({historyRows: [
+    makeRow('/mod/forum/discuss.php?d=12'),
+    makeRow('https://other.example/notice'),
+    makeRow('javascript:alert(1)'),
+    makeRow('#')
+  ]});
+  const items = events.find(e => e.source === 'school_history' && e.kind === 'notifications').items;
+  assert.equal(items[0].body, body.trim());
+  assert.equal(items[0].title.length, 200);
+  assert.equal(items[0].url, origin + '/mod/forum/discuss.php?d=12');
+  assert.ok(items.slice(1).every(item => item.url === ''));
+});
+
+test('large detail previews stay inside the Unity bridge limit and report partial history', async () => {
+  const {events} = await capture({historyRows: Array.from({length: 50}, (_, i) =>
+    historyRow(i + 1, false, '긴 본문 '.repeat(500)))});
+  const result = events.find(e => e.source === 'school_history' && e.kind === 'notifications');
+  assert.ok(result.items.length > 0 && result.items.length < 50);
+  assert.equal(result.historyLimited, true);
+  assert.equal(result.total, 50);
+  assert.ok(JSON.stringify(result).length <= 60000);
+  assert.ok(result.items.every(item => item.body.length <= 2000));
+});
+
 test('history page preserves both read and unread records even when the user-menu inbox is empty', async () => {
   const {events, requests} = await capture({
     historyRows: [historyRow(1, true, '이미 읽은 과제 안내'), historyRow(2, false, '새 공지')],

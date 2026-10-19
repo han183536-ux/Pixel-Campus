@@ -1,0 +1,259 @@
+(() => {
+  if (location.origin !== 'https://smartlead.hallym.ac.kr') return;
+  const nonce = '__UNITY_NONCE__';
+  const user = Number(window.M?.cfg?.userid) || 0;
+  if (document.body?.classList.contains('notloggedin') ||
+      !(document.body?.classList.contains('loggedin') || user > 0 ||
+        document.querySelector('#page-header .nav-item-userinfo .btn-userinfo'))) return;
+  const text = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const plain = value => text(new DOMParser().parseFromString(String(value || ''), 'text/html').body?.textContent);
+  let expired = false;
+  const send = data => {
+    if (!expired || data.kind === 'authentication')
+      window.chrome?.webview?.postMessage(JSON.stringify({...data, nonce, page: location.href}));
+  };
+  const courseInfo = course => {
+    const name = plain(course.fullname || course.courseName || course.shortname);
+    const match = name.match(/\((\d{6}-\d{2})\)/) || text(course.shortname).match(/(?:^|\D)(\d{6}-\d{2})(?:$|\D)/);
+    return {courseId: Number(course.id || course.courseId), courseName: name,
+      courseCode: match ? match[1] : ''};
+  };
+  async function request(path, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(path, {...options, credentials: 'same-origin', signal: controller.signal});
+      const url = new URL(response.url || path, location.href);
+      if (url.origin !== location.origin || /^\/login(?:\/|$)/.test(url.pathname)) {
+        expired = true; send({kind: 'authentication'}); throw Error('로그인이 필요합니다.');
+      }
+      if (!response.ok) throw Error('학교 서버 응답 오류');
+      // Keep the timeout alive until the response body has finished downloading.
+      const content = await response.text();
+      return {url: url.href, text: async () => content, json: async () => JSON.parse(content)};
+    } finally { clearTimeout(timeout); }
+  }
+  async function api(methodname, args) {
+    if (!window.M?.cfg?.sesskey) throw Error('API 세션 없음');
+    const response = await request('/lib/ajax/service.php?sesskey=' + encodeURIComponent(window.M.cfg.sesskey), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify([{index: 0, methodname, args}])
+    });
+    const result = await response.json();
+    if (!Array.isArray(result) || !result[0] || result[0].error) throw Error('API 사용 불가');
+    return result[0].data;
+  }
+  async function html(path) {
+    const doc = new DOMParser().parseFromString(await (await request(path)).text(), 'text/html');
+    if (doc.querySelector('body.notloggedin, input[name="logintoken"], form[action*="/login/"]')) {
+      expired = true; send({kind: 'authentication'}); throw Error('로그인이 필요합니다.');
+    }
+    return doc;
+  }
+  async function pool(items, worker) {
+    let index = 0;
+    await Promise.all(Array.from({length: Math.min(4, items.length)}, async () => {
+      while (!expired && index < items.length) await worker(items[index++]);
+    }));
+  }
+  async function courses() {
+    const all = [];
+    try {
+      let offset = 0;
+      for (;;) {
+        const result = await api('core_course_get_enrolled_courses_by_timeline_classification',
+          {classification: 'allincludinghidden', limit: 50, offset, sort: 'fullname'});
+        if (!Array.isArray(result?.courses)) throw Error('과목 목록 형식 확인 필요');
+        all.push(...result.courses.map(courseInfo));
+        if (!(Number(result.nextoffset) > offset)) break;
+        offset = Number(result.nextoffset);
+      }
+      return {items: all, partial: false};
+    } catch {
+      const seen = new Map();
+      for (const path of [null, '/my/', '/']) {
+        let doc;
+        try { doc = path ? await html(path) : document; } catch { if (expired) throw Error('로그인 필요'); else continue; }
+        // Coursemos uses course-info-container and role=main, not Moodle's region-main.
+        for (const link of doc.querySelectorAll?.('.course-info-container h4 a[href*="course/view.php"], [role="main"] a[href*="course/view.php"], #region-main a[href*="course/view.php"], .course-list a[href*="course/view.php"]') || []) {
+          const url = new URL(link.getAttribute('href'), location.href);
+          const id = Number(url.searchParams.get('id'));
+          if (url.origin !== location.origin || url.pathname !== '/course/view.php' || !Number.isSafeInteger(id) || id <= 0) continue;
+          const name = text(link.querySelector('.coursename, .course-title')?.textContent || link.textContent);
+          if (name && !/^(view course|강의실 홈|강의실 보기|과목 보기)$/i.test(name) && !seen.has(id))
+            seen.set(id, courseInfo({id, fullname: name}));
+        }
+        if (seen.size) break;
+      }
+      if (!seen.size) throw Error('전체 수강 과목을 확인할 수 없습니다.');
+      // A dashboard can be paginated. Never claim its visible links are the complete roster.
+      return {items: [...seen.values()], partial: true};
+    }
+  }
+  async function scanCalendar() {
+    try {
+      let aftereventid = 0;
+      const seen = new Set();
+      for (let page = 0; page < 20; page++) {
+        const result = await api('core_calendar_get_action_events_by_timesort',
+          {timesortfrom: 0, limitnum: 50, aftereventid});
+        if (!Array.isArray(result?.events)) throw Error('학교 일정 확인 필요');
+        for (const event of result.events) {
+          if (seen.has(event.id)) continue;
+          seen.add(event.id);
+          // Start/opening events are not deadlines. Never use their dates as a due date.
+          if (!['assign', 'ubassign'].includes(event.modulename) || !['due', 'close'].includes(event.eventtype)) continue;
+          const candidate = event.url || event.action?.url || event.viewurl;
+          if (!candidate || !(Number(event.timestart) > 0)) continue;
+          const url = new URL(candidate, location.href);
+          if (url.origin !== location.origin || !/^\/mod\/(?:assign|ubassign)\/view.php$/.test(url.pathname)) continue;
+          const course = courseInfo(event.course || {id: event.courseid, fullname: event.coursename});
+          send({kind: 'schedule', items: [{...course, id: -Math.abs(Number(event.id)), type: 'assignment',
+            title: plain(event.name).slice(0, 200), body: plain(event.description).slice(0, 2000),
+            dueAt: Math.floor(Number(event.timestart)), url: url.href, submissionKnown: false}]});
+        }
+        const next = Number(result.lastid || result.events.at(-1)?.id);
+        if (result.events.length < 50 || !(next > 0) || next === aftereventid) {
+          send({kind: 'schedule_complete', found: true}); return;
+        }
+        aftereventid = next;
+      }
+      send({kind: 'schedule_complete', found: true, historyLimited: true});
+    } catch {
+      send({kind: 'schedule_complete', found: false});
+    }
+  }
+  const epoch = value => Number.isFinite(Number(value)) && Number(value) > 0 ? Math.floor(Number(value)) : 0;
+  function dateFromCell(cell) {
+    const value = cell?.querySelector('time[datetime]')?.getAttribute('datetime');
+    if (value) { const ms = Date.parse(value); if (Number.isFinite(ms)) return Math.floor(ms / 1000); }
+    const content = text(cell?.textContent);
+    // The live Coursemos assignment table uses a numeric Korea-local date.
+    const numeric = content.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (numeric) return Math.floor(Date.UTC(Number(numeric[1]), Number(numeric[2]) - 1,
+      Number(numeric[3]), Number(numeric[4]) - 9, Number(numeric[5]), Number(numeric[6] || 0)) / 1000);
+    const korean = content.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일.*?(?:(오전|오후)\s*)?(\d{1,2}):(\d{2})/);
+    if (!korean) return 0; // Do not guess a timezone or ambiguous localized dates.
+    let hour = Number(korean[5]);
+    if (korean[4] === '오후' && hour < 12) hour += 12;
+    if (korean[4] === '오전' && hour === 12) hour = 0;
+    return Math.floor(Date.UTC(Number(korean[1]), Number(korean[2]) - 1, Number(korean[3]), hour - 9, Number(korean[6])) / 1000);
+  }
+  async function assignmentPage(item) {
+    const doc = await html(item.url);
+    const rows = [...doc.querySelectorAll('.submissionstatustable tr, .submissionstatus tr')];
+    if (!rows.length) throw Error('과제 제출 상태 확인 필요');
+    let submissionKnown = false, submitted = false, due = 0, extension = 0;
+    for (const row of rows) {
+      const cells = row.querySelectorAll('th, td');
+      if (cells.length < 2) continue;
+      const label = text(cells[0].textContent), value = text(cells[1].textContent);
+      if (/제출\s*(상태|여부)|submission status/i.test(label)) {
+        if (/미제출|제출.*않|제출.*없|아직.*제출|no.*submi|not submitted|draft|작성 중|임시/i.test(value)) { submissionKnown = true; submitted = false; }
+        else if (/제출.*완료|제출됨|submitted|채점.*완료/i.test(value)) { submissionKnown = true; submitted = true; }
+      }
+      if (/연장|extension/i.test(label)) extension = dateFromCell(cells[1]);
+      else if (/^(마감일|마감 일시|종료 일시|due date)$/i.test(label)) due = dateFromCell(cells[1]);
+    }
+    const intro = doc.querySelector('#intro');
+    return {...item, dueAt: extension || due || item.dueAt || 0, submissionKnown, submitted,
+      body: text(intro?.textContent).slice(0, 2000)};
+  }
+  async function assignmentList(course) {
+    const doc = await html('/mod/assign/index.php?id=' + course.courseId);
+    const root = doc.querySelector('#region-main') || doc.querySelector('[role="main"]') || doc.querySelector('#page-content');
+    if (!root) throw Error('과제 목록 확인 필요');
+    const seen = new Map();
+    for (const link of root.querySelectorAll('a[href*="/mod/assign/view.php"]')) {
+      const url = new URL(link.getAttribute('href'), location.href);
+      const id = Number(url.searchParams.get('id'));
+      if (url.origin !== location.origin || !Number.isSafeInteger(id) || id <= 0) continue;
+      seen.set(id, {...course, id, title: text(link.textContent).slice(0, 200), url: url.href, type: 'assignment'});
+    }
+    if (!seen.size && !root.querySelector('table.generaltable') && !/과제.*없|no assignments/i.test(text(root.textContent)))
+      throw Error('과제 목록 구조 확인 필요');
+    // Coursemos includes the due date and submission state in its index table.
+    // Read those columns directly instead of requesting every assignment page first.
+    const table = root.querySelector('table.generaltable');
+    const headers = [...(table?.querySelectorAll('thead th, tr:first-child th') || [])].map(cell => text(cell.textContent));
+    const dueIndex = headers.findIndex(value => /종료 일시|마감|due date/i.test(value));
+    const statusIndex = headers.findIndex(value => /^(제출|제출 여부|제출 상태|submission|status)$/i.test(value));
+    if (dueIndex >= 0 || statusIndex >= 0) for (const row of table.querySelectorAll('tbody tr')) {
+      const link = row.querySelector('a[href*="/mod/assign/view.php"]');
+      if (!link) continue;
+      const item = seen.get(Number(new URL(link.getAttribute('href'), location.href).searchParams.get('id')));
+      if (!item) continue;
+      const cells = row.querySelectorAll('td');
+      if (dueIndex >= 0) item.dueAt = dateFromCell(cells[dueIndex]);
+      const value = statusIndex >= 0 ? text(cells[statusIndex]?.textContent) : '';
+      if (/미제출|제출.*않|제출.*없|no.*submi|not submitted|draft|임시/i.test(value)) { item.submitted = false; item.submissionKnown = true; }
+      else if (/제출.*완료|제출됨|submitted/i.test(value)) { item.submitted = true; item.submissionKnown = true; }
+    }
+    const items = [];
+    // The outer course pool already limits concurrent school requests.
+    for (const item of seen.values()) {
+      if (item.submissionKnown && item.dueAt > 0) { items.push(item); continue; }
+      try { items.push(await assignmentPage(item)); }
+      catch { items.push({...item, submissionKnown: false}); }
+    }
+    return items;
+  }
+  async function run() {
+    let roster;
+    try {
+      roster = await courses();
+      // Small messages preserve every course, including courses with no notifications.
+      for (const course of roster.items) send({kind: 'course', items: [course]});
+      send({kind: 'courses_complete', found: true, historyLimited: roster.partial, total: roster.items.length});
+    } catch {
+      send({kind: 'coursework_status', error: '수강 과목 조회 실패 · 학교에서 다시 확인해 주세요.'}); return;
+    }
+    let assignments;
+    try {
+      const result = await api('mod_assign_get_assignments', {courseids: roster.items.map(c => c.courseId)});
+      if (!Array.isArray(result?.courses) || result.warnings?.length) throw Error('과제 목록 확인 필요');
+      const byId = new Map(result.courses.map(c => [Number(c.id), c]));
+      if (roster.items.some(c => !Array.isArray(byId.get(c.courseId)?.assignments))) throw Error('과제 일부 누락');
+      assignments = byId;
+    } catch { assignments = null; }
+    await pool(roster.items, async course => {
+      try {
+        let items;
+        if (assignments) {
+          items = [];
+          for (const assignment of assignments.get(course.courseId).assignments) {
+            const item = {...course, id: Number(assignment.id), title: plain(assignment.name).slice(0, 200),
+              body: plain(assignment.intro).slice(0, 2000), type: 'assignment', dueAt: epoch(assignment.duedate),
+              url: Number(assignment.cmid) > 0 ? location.origin + '/mod/assign/view.php?id=' + Number(assignment.cmid) : ''};
+            try {
+              const status = await api('mod_assign_get_submission_status', {assignid: item.id});
+              const attempt = status?.lastattempt;
+              const submission = assignment.teamsubmission ? attempt?.teamsubmission : attempt?.submission;
+              const value = submission?.status;
+              item.submissionKnown = ['submitted', 'new', 'draft', 'reopened'].includes(value);
+              item.submitted = value === 'submitted';
+              if (assignment.teamsubmission && attempt?.submissiongroupmemberswhoneedtosubmit?.length) item.submitted = false;
+              item.dueAt = epoch(attempt?.extensionduedate) || item.dueAt;
+              if (!item.submissionKnown) throw Error('제출 상태 확인 필요');
+            } catch {
+              try { if (!item.url) throw Error('과제 링크 없음'); Object.assign(item, await assignmentPage(item)); } catch { item.submissionKnown = false; }
+            }
+            items.push(item);
+          }
+        } else items = await assignmentList(course);
+        send({kind: 'assignments_begin', courseId: course.courseId});
+        for (const item of items) send({kind: 'assignment', items: [item]});
+        send({kind: 'assignments_complete', courseId: course.courseId, found: true,
+          historyLimited: items.some(item => !item.submissionKnown)});
+      } catch {
+        send({kind: 'assignments_complete', courseId: course.courseId, found: false});
+      }
+    });
+  }
+  // The calendar is independent of the roster and assignment APIs. Publish deadlines
+  // immediately, even if a school blocks those APIs or submission checks take longer.
+  Promise.allSettled([scanCalendar(), run()]).then(results => {
+    if (results[1].status === 'rejected') send({kind: 'coursework_status', error: '과제 조회 실패 · 다시 확인해 주세요.'});
+    send({kind: 'coursework_complete'});
+  });
+})();
