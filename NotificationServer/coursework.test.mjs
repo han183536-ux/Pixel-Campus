@@ -93,7 +93,7 @@ test('submission states and personal extension deadlines are preserved without c
   assert.equal(items[1].dueAt, 1800100000);
   assert.equal(items[1].body, '과제 설명');
   assert.equal(items[1].url, origin + '/mod/assign/view.php?id=92');
-  assert.deepEqual(requests.filter(r => JSON.parse(r.options.body)[0].methodname === 'mod_assign_get_submission_status')
+  assert.deepEqual(requests.filter(r => r.path.startsWith('/lib/ajax/') && JSON.parse(r.options.body)[0].methodname === 'mod_assign_get_submission_status')
     .map(r => JSON.parse(r.options.body)[0].args.assignid), [11, 12, 13]);
 });
 
@@ -201,7 +201,7 @@ test('Coursemos submission-detail label and numeric deadline are parsed when the
   const link = {textContent: '보고서', getAttribute: () => '/mod/assign/view.php?id=91'};
   const root = {textContent: '과제', querySelectorAll: () => [link], querySelector: () => ({querySelectorAll: () => []})};
   const doc = {...emptyDoc, querySelectorAll: () => [
-    ['제출 여부', '미제출'], ['종료 일시', '2026-10-25 23:59'], ['마감까지 남은 기한', '3일 2시간']
+    ['제출 여부', '미제출'], ['시작 일시', '2026-10-10 09:00'], ['종료 일시', '2026-10-25 23:59'], ['마감까지 남은 기한', '3일 2시간']
   ].map(pair => ({querySelectorAll: () => pair.map(cell)}))};
   const {events} = await capture({api: ({methodname}) => {
     if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
@@ -212,4 +212,48 @@ test('Coursemos submission-detail label and numeric deadline are parsed when the
   assert.equal(task.submissionKnown, true);
   assert.equal(task.submitted, false);
   assert.equal(task.dueAt, Date.parse('2026-10-25T23:59:00+09:00') / 1000);
+  assert.equal(task.startAt, Date.parse('2026-10-10T09:00:00+09:00') / 1000);
+});
+
+test('API opening metadata and personal extension are preserved', async () => {
+  const {events} = await capture({api: ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
+    if (methodname === 'mod_assign_get_assignments') return {courses: [{id: 7, assignments: [
+      {...assignment(11, 91), allowsubmissionsfromdate: 1799000000}
+    ]}]};
+    return {lastattempt: {submission: {status: 'new'}, extensionduedate: 1800100000}};
+  }});
+  const item = events.find(e => e.kind === 'assignment').items[0];
+  assert.equal(item.startAt, 1799000000);
+  assert.equal(item.dueAt, 1800100000);
+});
+
+test('confirmed API deadlines do not need opening-date requests', async () => {
+  const {events, requests} = await capture({api: ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
+    if (methodname === 'mod_assign_get_assignments') return {courses: [{id: 7, assignments: [assignment(11, 91)]}]};
+    return {lastattempt: {submission: {status: 'new'}, extensionduedate: 1800100000}};
+  }, pages: {'/mod/assign/view.php?id=91': {...emptyDoc, querySelectorAll: () => [
+    ['제출 여부', '미제출'], ['시작 일시', '2026-10-10 09:00'], ['종료 일시', '2026-10-25 23:59']
+  ].map(pair => ({querySelectorAll: () => pair.map(cell)}))}}});
+  const item = events.find(e => e.kind === 'assignment').items[0];
+  assert.equal(item.startAt, 0);
+  assert.ok(!requests.some(r => r.path.includes('/mod/assign/view.php')));
+  assert.equal(item.dueAt, 1800100000);
+  assert.equal(item.submissionKnown, true);
+  assert.equal(item.submitted, false);
+});
+
+test('Coursemos table opening date is used without requiring assignment-detail access', async () => {
+  const link = {textContent: '보고서', getAttribute: () => '/mod/assign/view.php?id=91'};
+  const table = {querySelectorAll: selector => selector.includes('thead') ?
+    ['과제', '시작 일시', '종료 일시', '제출'].map(cell) : [{querySelector: () => link,
+      querySelectorAll: () => ['보고서', '2026-10-10 09:00', '2026-10-25 23:59', '미제출'].map(cell)}]};
+  const root = {textContent: '과제', querySelectorAll: () => [link], querySelector: () => table};
+  const {events, requests} = await capture({api: ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
+    throw Error('blocked');
+  }, pages: {'/mod/assign/index.php?id=7': {...emptyDoc, querySelector: selector => selector === '#region-main' ? root : null}}});
+  assert.equal(events.find(e => e.kind === 'assignment').items[0].startAt, Date.parse('2026-10-10T09:00:00+09:00') / 1000);
+  assert.ok(!requests.some(r => r.path.includes('/mod/assign/view.php')));
 });

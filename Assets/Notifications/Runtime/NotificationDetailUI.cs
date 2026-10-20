@@ -181,7 +181,11 @@ namespace WebNotifications
             if (!showNotifications) return;
             var panel = NotificationPanelRect;
             panel.y += panelPull;
+            var background = GUI.backgroundColor;
+            GUI.backgroundColor = school.SelectedDeadlineColor;
             GUI.Box(panel, GUIContent.none);
+            GUI.backgroundColor = background;
+            CampusScreenLayout.DeadlineStripe(new Rect(panel.x, panel.y, panel.width, 4 * scale), school.SelectedDeadlineColor);
             GUI.Label(new Rect(panel.x + 10 * scale, panel.y + 7 * scale, panel.width - 20 * scale, 30 * scale),
                 "아래로 밀어 닫기", caption);
             bool enabled = GUI.enabled;

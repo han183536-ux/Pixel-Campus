@@ -65,6 +65,11 @@ namespace WebNotifications
         public long nextDue;
         public bool assignmentsKnown, assignmentsFailed, notificationsKnown;
         public string courseName, courseCode, nextTaskTitle;
+        public readonly List<CampusScreenLayout.DeadlinePeriod> deadlines = new List<CampusScreenLayout.DeadlinePeriod>();
+        public Color DeadlineColor => CampusScreenLayout.DeadlineColor(
+            CampusScreenLayout.CourseStage(deadlines, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        public string DeadlineStatus => deadlines.Count == 0 ? "" : CampusScreenLayout.StageLabel(
+            CampusScreenLayout.CourseStage(deadlines, DateTimeOffset.UtcNow.ToUnixTimeSeconds())) + "\n";
         public string Key => CourseKey(courseId, courseName, courseCode);
         public static string CourseKey(int id, string name, string code)
         {
@@ -98,7 +103,6 @@ namespace WebNotifications
             public Material material;
         }
         private readonly Dictionary<string, Course> courses = new Dictionary<string, Course>(StringComparer.Ordinal);
-        private readonly Dictionary<string, Color> colors = new Dictionary<string, Color>(StringComparer.Ordinal);
         private readonly List<Course> ordered = new List<Course>();
         private GameObject cubeRoot;
         private Camera mapCamera;
@@ -147,16 +151,11 @@ namespace WebNotifications
         private void CreateCube(Course course, string key)
         {
             if (cubeRoot == null) { cubeRoot = new GameObject("SmartLEAD Course Cubes"); cubeRoot.transform.SetParent(transform, false); cubeRoot.SetActive(visible); }
-            if (!colors.TryGetValue(key, out var color))
-            {
-                color = Color.HSVToRGB(Mathf.Repeat(colors.Count * .618034f + .5f, 1f), .6f, .95f);
-                colors.Add(key, color);
-            }
             course.cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             course.cube.transform.SetParent(cubeRoot.transform, false);
             var collider = course.cube.GetComponent<Collider>();
             if (collider != null) { collider.enabled = false; Release(collider); }
-            course.material = new Material(Shader.Find("Standard") ?? Shader.Find("Unlit/Color")) { color = color };
+            course.material = new Material(Shader.Find("Standard") ?? Shader.Find("Unlit/Color")) { color = Color.white };
             var renderer = course.cube.GetComponent<Renderer>();
             renderer.sharedMaterial = course.material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -198,6 +197,7 @@ namespace WebNotifications
             {
                 float top = HeaderHeight + index / columns * cellHeight - scroll.y;
                 var cube = ordered[index].cube;
+                ordered[index].material.color = ordered[index].data.DeadlineColor;
                 bool shown = visible && (detail == null || !detail.IsNotificationPanelOpen) && top >= HeaderHeight - 1 && top + 46 * scale < mapCamera.pixelHeight;
                 cube.SetActive(shown);
                 if (!shown) continue;
@@ -230,7 +230,7 @@ namespace WebNotifications
                 var tile = new Rect(index % columns * cellWidth + 3 * scale, index / columns * cellHeight, cellWidth - 6 * scale, cellHeight);
                 var title = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
                 GUI.Label(new Rect(tile.x, tile.y + 49 * scale, tile.width, tile.height - 49 * scale),
-                    title + "\n" + CourseClassrooms.Label(item.courseCode) + "\n" + item.Summary, label);
+                    title + "\n" + CourseClassrooms.Label(item.courseCode) + "\n" + item.DeadlineStatus + item.Summary, label);
                 if (detail != null && GUI.Button(tile, GUIContent.none, GUIStyle.none)) detail.OpenCourseNotifications(item.Key, title);
             }
             var school = GetComponent<SmartleadWebView>();

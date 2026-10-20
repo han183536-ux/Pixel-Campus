@@ -8,7 +8,7 @@ namespace WebNotifications
     [RequireComponent(typeof(NotificationManager))]
     public class SmartleadWebView : MonoBehaviour
     {
-        [Serializable] private class Notice { public int id, courseId; public long dueAt, createdAt; public string sender, title, body, url, courseName, courseCode, type; public bool read, readKnown, submitted, submissionKnown; }
+        [Serializable] private class Notice { public int id, courseId; public long dueAt, createdAt, startAt; public string sender, title, body, url, courseName, courseCode, type; public bool read, readKnown, submitted, submissionKnown; }
         [Serializable] private class Capture { public string kind, nonce, page, source, error; public int count, total, courseId; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated; public Notice[] items; }
         private const string NotificationPage = "https://smartlead.hallym.ac.kr/local/ubion/user/index.php";
         private WebViewObject view;
@@ -564,6 +564,7 @@ namespace WebNotifications
             {
                 var entry = AddOverview(overview, item);
                 if (entry == null || item.submissionKnown && item.submitted) continue;
+                entry.deadlines.Add(new CampusScreenLayout.DeadlinePeriod { startAt = item.startAt, dueAt = item.dueAt });
                 if (!item.submissionKnown) entry.unknownAssignments++; else entry.pendingAssignments++;
                 if (entry.nextTaskTitle == null || CompareDeadlines(item.dueAt, entry.nextDue) < 0)
                 { entry.nextDue = item.dueAt; entry.nextTaskTitle = item.title; }
@@ -616,6 +617,25 @@ namespace WebNotifications
 
         public float AgendaHeight => (PendingAssignments().Count * 68 + 135) * CampusScreenLayout.Scale;
 
+        private CampusScreenLayout.DeadlinePeriod NoticeDeadline(Notice item)
+        {
+            var task = string.IsNullOrEmpty(item.url) ? null :
+                PendingAssignments().Find(candidate => SameActivity(candidate.url, item.url));
+            return new CampusScreenLayout.DeadlinePeriod { startAt = task?.startAt ?? item.startAt, dueAt = task?.dueAt ?? item.dueAt };
+        }
+
+        public Color SelectedDeadlineColor
+        {
+            get
+            {
+                var periods = new List<CampusScreenLayout.DeadlinePeriod>();
+                foreach (var item in PendingAssignments())
+                    if (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey)
+                        periods.Add(new CampusScreenLayout.DeadlinePeriod { startAt = item.startAt, dueAt = item.dueAt });
+                return CampusScreenLayout.DeadlineColor(CampusScreenLayout.CourseStage(periods, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+            }
+        }
+
         public void DrawUpcomingAgenda(Rect area)
         {
             float scale = CampusScreenLayout.Scale;
@@ -638,7 +658,13 @@ namespace WebNotifications
                 var caption = (string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName) + " · " + title +
                     "\n" + date + CampusScreenLayout.RemainingTime(item.dueAt) +
                     (!item.submissionKnown ? " · 제출 확인 필요" : "");
-                if (GUILayout.Button(caption, agendaButton, GUILayout.Height(64 * scale)))
+                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                caption += "\n" + CampusScreenLayout.DeadlineLabel(item.dueAt, now);
+                var background = GUI.backgroundColor;
+                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, now));
+                bool clicked = GUILayout.Button(caption, agendaButton, GUILayout.Height(64 * scale));
+                GUI.backgroundColor = background;
+                if (clicked)
                 {
                     GetComponent<NotificationDetailUI>()?.OpenCourseNotifications(NoticeCourseKey(item), item.courseName);
                     selectedNotice = item;
@@ -731,21 +757,26 @@ namespace WebNotifications
                 if (assignment ? item.submissionKnown && item.submitted : item.readKnown && item.read) continue;
                 count++;
                 string title = string.IsNullOrWhiteSpace(item.title) ? "제목 없음" : item.title;
-                long due = item.dueAt;
-                if (!assignment && due <= 0 && !string.IsNullOrEmpty(item.url))
-                {
-                    var task = PendingAssignments().Find(candidate => SameActivity(candidate.url, item.url));
-                    if (task != null) due = task.dueAt;
-                }
+                var period = NoticeDeadline(item);
+                long due = period.dueAt;
+                long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                var color = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(due, now));
                 var time = CampusScreenLayout.RemainingTime(due);
-                if (GUILayout.Button(kind + " · " + title + "\n" + time +
-                    (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), touchButton))
+                var background = GUI.backgroundColor;
+                GUI.backgroundColor = color;
+                bool clicked = GUILayout.Button(kind + " · " + title + "\n" + time +
+                    (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), touchButton);
+                GUI.backgroundColor = background;
+                if (clicked)
                     selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
+                GUI.backgroundColor = color;
                 GUILayout.BeginVertical(GUI.skin.box);
+                GUI.backgroundColor = background;
                 GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? "미제출" : "제출 확인 필요" : ReadLabel(item)), label);
                 GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), label);
                 GUILayout.Label(time, label);
+                GUILayout.Label(CampusScreenLayout.DeadlineLabel(due, now), label);
                 if (due > 0 && due <= 253402300799L)
                     GUILayout.Label("마감: " + DateTimeOffset.FromUnixTimeSeconds(due).ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") + " (한국 시간)", label);
                 if (!string.IsNullOrWhiteSpace(item.sender)) GUILayout.Label("보낸 사람: " + item.sender, label);
