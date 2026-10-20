@@ -18,6 +18,7 @@ namespace WebNotifications
         private bool applicationPaused, resumeRefreshPending, networkWasUnavailable;
         private float resumeRefreshAt;
         private bool authenticationVisible;
+        private bool websiteNoticesVisible;
         private bool accountPagePinned;
         private bool returnFromLogin;
         private bool schoolResult;
@@ -33,6 +34,8 @@ namespace WebNotifications
         private readonly List<Notice> scheduleDetails = new List<Notice>();
         private readonly List<Notice> incomingSchedules = new List<Notice>();
         private readonly Dictionary<int, Notice> enrolledCourses = new Dictionary<int, Notice>();
+        private readonly Dictionary<int, Notice> incomingCourses = new Dictionary<int, Notice>();
+        private bool currentRosterKnown;
         private readonly HashSet<int> assignmentsConfirmed = new HashSet<int>();
         private readonly HashSet<int> assignmentsFailed = new HashSet<int>();
         private readonly Dictionary<int, List<Notice>> assignmentUpdates = new Dictionary<int, List<Notice>>();
@@ -171,6 +174,7 @@ namespace WebNotifications
             }
             nonce = Guid.NewGuid().ToString("N");
             receivedCourses.Clear();
+            incomingCourses.Clear();
             assignmentUpdates.Clear();
             incomingSchedules.Clear();
             courseworkDeadline = Time.unscaledTime + 45;
@@ -230,7 +234,13 @@ namespace WebNotifications
             authenticationVisible = true;
             courseCubes?.SetVisible(false);
             ApplyWebViewMargins();
-            view.SetVisibility(true);
+            view.SetVisibility(!websiteNoticesVisible);
+        }
+
+        public void SetWebsiteNoticesVisible(bool visible)
+        {
+            websiteNoticesVisible = visible;
+            view?.SetVisibility(!visible && authenticationVisible);
         }
 
         public void OpenAccountPage()
@@ -417,7 +427,8 @@ namespace WebNotifications
         {
             assignmentDetails.Clear(); enrolledCourses.Clear(); assignmentsConfirmed.Clear(); assignmentsFailed.Clear();
             scheduleDetails.Clear(); incomingSchedules.Clear(); courseworkFailed = false; scheduleAvailable = false; courseworkFinished = false; courseworkDeadline = 0;
-            assignmentUpdates.Clear(); receivedCourses.Clear(); notificationsConfirmed = false; rosterPartial = false;
+            assignmentUpdates.Clear(); receivedCourses.Clear(); incomingCourses.Clear(); currentRosterKnown = false;
+            notificationsConfirmed = false; rosterPartial = false;
             courseworkStatus = "과목 · 과제 확인 중…";
         }
 
@@ -448,16 +459,17 @@ namespace WebNotifications
                     break;
                 case "course":
                     if (data.items != null) foreach (var item in data.items)
-                        if (item != null && item.courseId > 0) { enrolledCourses[item.courseId] = item; receivedCourses.Add(item.courseId); }
+                        if (item != null && item.courseId > 0) { incomingCourses[item.courseId] = item; receivedCourses.Add(item.courseId); }
                     break;
                 case "courses_complete":
                     rosterPartial = data.historyLimited;
-                    if (!rosterPartial)
-                    {
-                        var removed = new List<int>();
-                        foreach (var id in enrolledCourses.Keys) if (!receivedCourses.Contains(id)) removed.Add(id);
-                        foreach (var id in removed) { enrolledCourses.Remove(id); assignmentDetails.RemoveAll(item => item.courseId == id); assignmentsConfirmed.Remove(id); assignmentsFailed.Remove(id); }
-                    }
+                    // Replace the snapshot atomically, including a partial current roster.
+                    // Retaining missing records here used to keep old semesters forever.
+                    var removed = new List<int>();
+                    foreach (var id in enrolledCourses.Keys) if (!receivedCourses.Contains(id)) removed.Add(id);
+                    foreach (var id in removed) { enrolledCourses.Remove(id); assignmentDetails.RemoveAll(item => item.courseId == id); assignmentsConfirmed.Remove(id); assignmentsFailed.Remove(id); }
+                    foreach (var course in incomingCourses) enrolledCourses[course.Key] = course.Value;
+                    currentRosterKnown = true;
                     courseworkStatus = rosterPartial ? "일부 과목만 확인됨 · 전체 목록 확인 필요" : "수강 " + enrolledCourses.Count + "과목 · 과제 확인 중…";
                     break;
                 case "assignments_begin":
@@ -513,13 +525,12 @@ namespace WebNotifications
 
         private List<Notice> PendingAssignments()
         {
-            var result = assignmentDetails.FindAll(item => !item.submissionKnown || !item.submitted);
+            var result = assignmentDetails.FindAll(item => (!item.submissionKnown || !item.submitted) && IsCurrentCourse(item));
             foreach (var item in scheduleDetails)
             {
                 // Calendars include old enrolments. Keep overdue work from the current
-                // roster, and future deadlines when a partial roster cannot identify a course.
-                if (enrolledCourses.Count > 0 && !enrolledCourses.ContainsKey(item.courseId) &&
-                    item.dueAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds()) continue;
+                // roster, and future deadlines only while the roster is unavailable.
+                if (currentRosterKnown ? !IsCurrentCourse(item) : item.dueAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds()) continue;
                 if (!assignmentDetails.Exists(task => SameActivity(task.url, item.url))) result.Add(item);
             }
             result.Sort((a, b) => CompareDeadlines(a.dueAt, b.dueAt));
@@ -530,6 +541,9 @@ namespace WebNotifications
         {
             if (item.courseId > 0 && enrolledCourses.TryGetValue(item.courseId, out var course))
                 return CourseCubeNotice.CourseKey(course.courseId, course.courseName, course.courseCode);
+            // A positive Moodle course ID identifies a specific offering. Never
+            // relabel an old offering using a matching name/code from a new semester.
+            if (item.courseId > 0) return "id:" + item.courseId;
             Notice match = null;
             foreach (var candidate in enrolledCourses.Values)
             {
@@ -543,6 +557,17 @@ namespace WebNotifications
             }
             if (match != null) return CourseCubeNotice.CourseKey(match.courseId, match.courseName, match.courseCode);
             return CourseCubeNotice.CourseKey(item.courseId, item.courseName, item.courseCode);
+        }
+
+        private bool IsCurrentCourse(Notice item)
+        {
+            if (item == null) return false;
+            if (item.courseId > 0) return enrolledCourses.ContainsKey(item.courseId);
+            var key = NoticeCourseKey(item);
+            if (key == null) return false;
+            foreach (var course in enrolledCourses.Values)
+                if (CourseCubeNotice.CourseKey(course.courseId, course.courseName, course.courseCode) == key) return true;
+            return false;
         }
 
         private void SyncCourseOverview()
@@ -574,6 +599,7 @@ namespace WebNotifications
 
         private CourseCubeNotice AddOverview(Dictionary<string, CourseCubeNotice> overview, Notice item)
         {
+            if (!IsCurrentCourse(item)) return null;
             var key = NoticeCourseKey(item);
             if (key == null) return null;
             if (!overview.TryGetValue(key, out var result))
@@ -752,6 +778,7 @@ namespace WebNotifications
         {
             foreach (var item in items)
             {
+                if (currentRosterKnown && NoticeCourseKey(item) != null && !IsCurrentCourse(item)) continue;
                 if (!string.IsNullOrEmpty(selectedCourseKey) && NoticeCourseKey(item) != selectedCourseKey) continue;
                 bool assignment = kind == "과제";
                 if (assignment ? item.submissionKnown && item.submitted : item.readKnown && item.read) continue;

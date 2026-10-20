@@ -1,0 +1,1063 @@
+{
+  "generatedAt": "2026-10-20T08:06:22.712Z",
+  "discoveryPages": 650,
+  "boards": [
+    {
+      "name": "학사",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/157/rssList.do?row=50"
+    },
+    {
+      "name": "장학/등록",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/156/rssList.do?row=50"
+    },
+    {
+      "name": "일반",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/155/rssList.do?row=50"
+    },
+    {
+      "name": "안전",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/1413/rssList.do?row=50"
+    },
+    {
+      "name": "채용",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/151/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 졸업기준",
+      "url": "https://sw.hallym.ac.kr/bbs/sw/445/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 취업게시판",
+      "url": "https://sw.hallym.ac.kr/bbs/sw/249/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 공지사항",
+      "url": "https://sw.hallym.ac.kr/bbs/sw/248/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 자료실",
+      "url": "https://sw.hallym.ac.kr/bbs/sw/447/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 캡스톤 및 공모전 수상",
+      "url": "https://sw.hallym.ac.kr/bbs/sw/446/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 대학원연구실",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1307/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 2025년 1학기",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1252/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 2026년 1학기",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1439/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 2023학년도",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1256/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 2024학년도",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1254/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 교육신청게시판",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1217/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 홍보·보도자료",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/562/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/335/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/563/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 뉴스레터",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/561/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 갤러리",
+      "url": "https://www.hallym.ac.kr/bbs/hlsw/1251/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 동정",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/127/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 법인소식",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/1321/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 법인 이사회",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/128/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 대학평의원회",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/130/rssList.do?row=50"
+    },
+    {
+      "name": "홍보 · 뉴스레터",
+      "url": "https://www.hallym.ac.kr/bbs/pr/1010/rssList.do?row=50"
+    },
+    {
+      "name": "홍보 · 뉴스",
+      "url": "https://www.hallym.ac.kr/bbs/pr/876/rssList.do?row=50"
+    },
+    {
+      "name": "홍보 · 한림포토",
+      "url": "https://www.hallym.ac.kr/bbs/pr/933/rssList.do?row=50"
+    },
+    {
+      "name": "홍보 · 홍보영상",
+      "url": "https://www.hallym.ac.kr/bbs/pr/884/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 수시 모집요강",
+      "url": "https://www.hallym.ac.kr/bbs/admission/992/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 모집요강",
+      "url": "https://www.hallym.ac.kr/bbs/admission/994/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 모집요강",
+      "url": "https://www.hallym.ac.kr/bbs/admission/995/rssList.do?row=50"
+    },
+    {
+      "name": "홍보 · 연구",
+      "url": "https://www.hallym.ac.kr/bbs/pr/877/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 대학안내책자",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/418/rssList.do?row=50"
+    },
+    {
+      "name": "한림대학교 · 서식/신청서",
+      "url": "https://www.hallym.ac.kr/bbs/hallym/419/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 취업 및 공모정보",
+      "url": "https://grad.hallym.ac.kr/bbs/grad/292/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 공지사항",
+      "url": "https://grad.hallym.ac.kr/bbs/grad/290/rssList.do?row=50"
+    },
+    {
+      "name": "소프트웨어학부 · 대학원 소식",
+      "url": "https://grad.hallym.ac.kr/bbs/grad/293/rssList.do?row=50"
+    },
+    {
+      "name": "글로컬대학 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/glocal/408/rssList.do?row=50"
+    },
+    {
+      "name": "인문사회융합연구원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/icrhss/1268/rssList.do?row=50"
+    },
+    {
+      "name": "인문사회융합연구원 · 연구원소식",
+      "url": "https://www.hallym.ac.kr/bbs/icrhss/1269/rssList.do?row=50"
+    },
+    {
+      "name": "의료·바이오융합연구원 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/rimbc/1078/rssList.do?row=50"
+    },
+    {
+      "name": "의료·바이오융합연구원 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/rimbc/775/rssList.do?row=50"
+    },
+    {
+      "name": "의료·바이오융합연구원 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/rimbc/1079/rssList.do?row=50"
+    },
+    {
+      "name": "의료·바이오융합연구원 · 행사안내",
+      "url": "https://www.hallym.ac.kr/bbs/rimbc/777/rssList.do?row=50"
+    },
+    {
+      "name": "의료·바이오융합연구원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/rimbc/685/rssList.do?row=50"
+    },
+    {
+      "name": "AI융합연구원 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/ai/807/rssList.do?row=50"
+    },
+    {
+      "name": "AI융합연구원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/ai/649/rssList.do?row=50"
+    },
+    {
+      "name": "청각학전공 · 청각학전공",
+      "url": "https://www.hallym.ac.kr/bbs/audiology/238/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 통합자료실",
+      "url": "https://www.hallym.ac.kr/bbs/admission/958/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 통합공지",
+      "url": "https://www.hallym.ac.kr/bbs/admission/957/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 재외국민 모집요강",
+      "url": "https://www.hallym.ac.kr/bbs/admission/993/rssList.do?row=50"
+    },
+    {
+      "name": "대학 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/admission/959/rssList.do?row=50"
+    },
+    {
+      "name": "창의미래융합대학원 · 학내소식",
+      "url": "https://www.hallym.ac.kr/bbs/online/300/rssList.do?row=50"
+    },
+    {
+      "name": "창의미래융합대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/online/298/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/professional/519/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · MBA총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/1415/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 행사/동정",
+      "url": "https://www.hallym.ac.kr/bbs/professional/526/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/professional/524/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · AMP총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/527/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/531/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 행사/동정",
+      "url": "https://www.hallym.ac.kr/bbs/professional/530/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/professional/528/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/professional/520/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/535/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 행사/동정",
+      "url": "https://www.hallym.ac.kr/bbs/professional/534/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/professional/532/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/professional/521/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/539/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 행사/동정",
+      "url": "https://www.hallym.ac.kr/bbs/professional/538/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/professional/522/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/professional/536/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 총동문소식",
+      "url": "https://www.hallym.ac.kr/bbs/professional/543/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 행사/동정",
+      "url": "https://www.hallym.ac.kr/bbs/professional/542/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/professional/540/rssList.do?row=50"
+    },
+    {
+      "name": "특수대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/professional/523/rssList.do?row=50"
+    },
+    {
+      "name": "자유전공학부 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/ls/1358/rssList.do?row=50"
+    },
+    {
+      "name": "산학협력단 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/sanhak/765/rssList.do?row=50"
+    },
+    {
+      "name": "산학협력단 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/sanhak/673/rssList.do?row=50"
+    },
+    {
+      "name": "교직과정 · 자료실",
+      "url": "https://teaching.hallym.ac.kr/bbs/teaching/770/rssList.do?row=50"
+    },
+    {
+      "name": "인권센터 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hhrc/616/rssList.do?row=50"
+    },
+    {
+      "name": "교직과정 · 공지사항",
+      "url": "https://teaching.hallym.ac.kr/bbs/teaching/704/rssList.do?row=50"
+    },
+    {
+      "name": "캠퍼스라이프 카운슬링센터 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/counsel/692/rssList.do?row=50"
+    },
+    {
+      "name": "인권센터 · 규정 및 자료",
+      "url": "https://www.hallym.ac.kr/bbs/hhrc/1040/rssList.do?row=50"
+    },
+    {
+      "name": "의사소통클리닉 · 자료실",
+      "url": "https://cec.hallym.ac.kr/bbs/cec/728/rssList.do?row=50"
+    },
+    {
+      "name": "의사소통클리닉 · 의사소통클리닉",
+      "url": "https://cec.hallym.ac.kr/bbs/cec/730/rssList.do?row=50"
+    },
+    {
+      "name": "의사소통클리닉 · 심비우스프로그램",
+      "url": "https://cec.hallym.ac.kr/bbs/cec/729/rssList.do?row=50"
+    },
+    {
+      "name": "취업안내 · 취업진로 Tips",
+      "url": "https://job.hallym.ac.kr/bbs/job/722/rssList.do?row=50"
+    },
+    {
+      "name": "취업안내 · 일반형 프로그램",
+      "url": "https://job.hallym.ac.kr/bbs/job/717/rssList.do?row=50"
+    },
+    {
+      "name": "취업안내 · 진로취업 관련 사이트",
+      "url": "https://job.hallym.ac.kr/bbs/job/723/rssList.do?row=50"
+    },
+    {
+      "name": "봉사활동 · 한림봉사센터 프로그램",
+      "url": "https://www.hallym.ac.kr/bbs/hallymvc/329/rssList.do?row=50"
+    },
+    {
+      "name": "현장실습지원센터 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/intern/1412/rssList.do?row=50"
+    },
+    {
+      "name": "현장실습지원센터 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/intern/1407/rssList.do?row=50"
+    },
+    {
+      "name": "봉사활동 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/hallymvc/569/rssList.do?row=50"
+    },
+    {
+      "name": "봉사활동 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hallymvc/326/rssList.do?row=50"
+    },
+    {
+      "name": "박물관 · 교육프로그램",
+      "url": "https://www.hallym.ac.kr/bbs/museum/752/rssList.do?row=50"
+    },
+    {
+      "name": "박물관 · 강좌/문화행사",
+      "url": "https://www.hallym.ac.kr/bbs/museum/753/rssList.do?row=50"
+    },
+    {
+      "name": "박물관 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/museum/754/rssList.do?row=50"
+    },
+    {
+      "name": "학생생활관 · 서식 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/dorm/690/rssList.do?row=50"
+    },
+    {
+      "name": "학생생활관 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/dorm/688/rssList.do?row=50"
+    },
+    {
+      "name": "발전기금 · 한림소식",
+      "url": "https://www.hallym.ac.kr/bbs/fund/889/rssList.do?row=50"
+    },
+    {
+      "name": "발전기금 · 기부소식",
+      "url": "https://www.hallym.ac.kr/bbs/fund/888/rssList.do?row=50"
+    },
+    {
+      "name": "학생생활관 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/dorm/769/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/965/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/697/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/1349/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/1058/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/1059/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · HLMUN",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/1062/rssList.do?row=50"
+    },
+    {
+      "name": "대학노조 한림대지부 · 언론보도자료",
+      "url": "https://www.hallym.ac.kr/bbs/union/925/rssList.do?row=50"
+    },
+    {
+      "name": "총학생회 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chonghak/1061/rssList.do?row=50"
+    },
+    {
+      "name": "대학노조 한림대지부 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/union/924/rssList.do?row=50"
+    },
+    {
+      "name": "HLBS · 학내행사",
+      "url": "https://www.hallym.ac.kr/bbs/hlbs/903/rssList.do?row=50"
+    },
+    {
+      "name": "HLBS · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hlbs/980/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 대학원소식",
+      "url": "https://www.hallym.ac.kr/bbs/aix/251/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 학부소식",
+      "url": "https://www.hallym.ac.kr/bbs/aix/252/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 대학원 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/aix/448/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 학부 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/aix/927/rssList.do?row=50"
+    },
+    {
+      "name": "고령사회연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/aging/611/rssList.do?row=50"
+    },
+    {
+      "name": "SW중심대학사업단 · 사업단 소식",
+      "url": "https://www.hallym.ac.kr/bbs/aix/1097/rssList.do?row=50"
+    },
+    {
+      "name": "한림응용심리연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hiapr/1369/rssList.do?row=50"
+    },
+    {
+      "name": "한림과학콘서트 한림대학교 한림과학콘서트 바로가기입니다. · 발표자료",
+      "url": "https://www.hallym.ac.kr/bbs/hallymsc/836/rssList.do?row=50"
+    },
+    {
+      "name": "한림과학콘서트 한림대학교 한림과학콘서트 바로가기입니다. · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hallymsc/641/rssList.do?row=50"
+    },
+    {
+      "name": "한림과학콘서트 한림대학교 한림과학콘서트 바로가기입니다. · 행사사진",
+      "url": "https://www.hallym.ac.kr/bbs/hallymsc/839/rssList.do?row=50"
+    },
+    {
+      "name": "인문학부 · 학부소식",
+      "url": "https://www.hallym.ac.kr/bbs/humanities/165/rssList.do?row=50"
+    },
+    {
+      "name": "인문학부 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/humanities/164/rssList.do?row=50"
+    },
+    {
+      "name": "국어국문학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/korean/161/rssList.do?row=50"
+    },
+    {
+      "name": "영어영문학과 · 교내 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/dell/835/rssList.do?row=50"
+    },
+    {
+      "name": "사학전공 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/history/1285/rssList.do?row=50"
+    },
+    {
+      "name": "영어영문학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/dell/170/rssList.do?row=50"
+    },
+    {
+      "name": "사학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/history/167/rssList.do?row=50"
+    },
+    {
+      "name": "영어영문학과 · 모집공고",
+      "url": "https://www.hallym.ac.kr/bbs/dell/171/rssList.do?row=50"
+    },
+    {
+      "name": "영어영문학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/dell/358/rssList.do?row=50"
+    },
+    {
+      "name": "철학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/phil/158/rssList.do?row=50"
+    },
+    {
+      "name": "철학전공 · 학과소식",
+      "url": "https://www.hallym.ac.kr/bbs/phil/159/rssList.do?row=50"
+    },
+    {
+      "name": "철학전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/phil/351/rssList.do?row=50"
+    },
+    {
+      "name": "중국학과 · 동계방학 북경탐방",
+      "url": "https://www.hallym.ac.kr/bbs/china/360/rssList.do?row=50"
+    },
+    {
+      "name": "중국학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/china/359/rssList.do?row=50"
+    },
+    {
+      "name": "중국학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/china/173/rssList.do?row=50"
+    },
+    {
+      "name": "일본학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/japanese/373/rssList.do?row=50"
+    },
+    {
+      "name": "일본학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/japanese/372/rssList.do?row=50"
+    },
+    {
+      "name": "일본학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/japanese/176/rssList.do?row=50"
+    },
+    {
+      "name": "중국학과 · 학과소식",
+      "url": "https://www.hallym.ac.kr/bbs/china/174/rssList.do?row=50"
+    },
+    {
+      "name": "러시아학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/russian/375/rssList.do?row=50"
+    },
+    {
+      "name": "러시아학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/russian/179/rssList.do?row=50"
+    },
+    {
+      "name": "심리학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/psy/185/rssList.do?row=50"
+    },
+    {
+      "name": "심리학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/psy/376/rssList.do?row=50"
+    },
+    {
+      "name": "심리학과 · 취업/기타공고",
+      "url": "https://www.hallym.ac.kr/bbs/psy/377/rssList.do?row=50"
+    },
+    {
+      "name": "사회학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/soc/188/rssList.do?row=50"
+    },
+    {
+      "name": "사회학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/soc/189/rssList.do?row=50"
+    },
+    {
+      "name": "사회학과 · 대학원 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/soc/382/rssList.do?row=50"
+    },
+    {
+      "name": "법학과 · 학사 안내",
+      "url": "https://www.hallym.ac.kr/bbs/law/200/rssList.do?row=50"
+    },
+    {
+      "name": "사회학과 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/soc/380/rssList.do?row=50"
+    },
+    {
+      "name": "사회학과 · 기타자료실",
+      "url": "https://www.hallym.ac.kr/bbs/soc/381/rssList.do?row=50"
+    },
+    {
+      "name": "법학과 · 학술행사",
+      "url": "https://www.hallym.ac.kr/bbs/law/201/rssList.do?row=50"
+    },
+    {
+      "name": "법학과 · 장학/취업/특강 안내",
+      "url": "https://www.hallym.ac.kr/bbs/law/398/rssList.do?row=50"
+    },
+    {
+      "name": "사회복지학부 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/welfare/388/rssList.do?row=50"
+    },
+    {
+      "name": "사회복지학부 · 학부",
+      "url": "https://www.hallym.ac.kr/bbs/welfare/191/rssList.do?row=50"
+    },
+    {
+      "name": "사회복지학부 · 취업",
+      "url": "https://www.hallym.ac.kr/bbs/welfare/384/rssList.do?row=50"
+    },
+    {
+      "name": "광고홍보학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/adv/197/rssList.do?row=50"
+    },
+    {
+      "name": "정치행정학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/politics/194/rssList.do?row=50"
+    },
+    {
+      "name": "광고홍보학과 · 취업/공모전",
+      "url": "https://www.hallym.ac.kr/bbs/adv/397/rssList.do?row=50"
+    },
+    {
+      "name": "광고홍보학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/adv/198/rssList.do?row=50"
+    },
+    {
+      "name": "경제학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/econo/399/rssList.do?row=50"
+    },
+    {
+      "name": "경제학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/econo/203/rssList.do?row=50"
+    },
+    {
+      "name": "경영학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/biz/403/rssList.do?row=50"
+    },
+    {
+      "name": "경영학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/biz/209/rssList.do?row=50"
+    },
+    {
+      "name": "공공인재융합전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/public/1261/rssList.do?row=50"
+    },
+    {
+      "name": "공공인재융합전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/public/1260/rssList.do?row=50"
+    },
+    {
+      "name": "공공인재융합전공 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/public/1271/rssList.do?row=50"
+    },
+    {
+      "name": "금융재무학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/finance/212/rssList.do?row=50"
+    },
+    {
+      "name": "금융재무학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/finance/213/rssList.do?row=50"
+    },
+    {
+      "name": "생명과학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/bio/414/rssList.do?row=50"
+    },
+    {
+      "name": "생명과학과 · 학과소식",
+      "url": "https://www.hallym.ac.kr/bbs/bio/222/rssList.do?row=50"
+    },
+    {
+      "name": "생명과학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/bio/221/rssList.do?row=50"
+    },
+    {
+      "name": "생명과학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/bio/415/rssList.do?row=50"
+    },
+    {
+      "name": "바이오메디컬학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/biomedical/224/rssList.do?row=50"
+    },
+    {
+      "name": "스타트업비즈니스전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/startup/215/rssList.do?row=50"
+    },
+    {
+      "name": "스타트업비즈니스전공 · 수업자료실",
+      "url": "https://www.hallym.ac.kr/bbs/startup/411/rssList.do?row=50"
+    },
+    {
+      "name": "스타트업비즈니스전공 · 창업자료실",
+      "url": "https://www.hallym.ac.kr/bbs/startup/412/rssList.do?row=50"
+    },
+    {
+      "name": "언어병리학전공 · 진로취업프로그램",
+      "url": "https://www.hallym.ac.kr/bbs/slp/429/rssList.do?row=50"
+    },
+    {
+      "name": "화학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/chem/218/rssList.do?row=50"
+    },
+    {
+      "name": "언어병리학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/slp/233/rssList.do?row=50"
+    },
+    {
+      "name": "언어병리학전공 · 서식자료실",
+      "url": "https://www.hallym.ac.kr/bbs/slp/434/rssList.do?row=50"
+    },
+    {
+      "name": "환경생명공학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/environ/231/rssList.do?row=50"
+    },
+    {
+      "name": "환경생명공학과 · 학과소식",
+      "url": "https://www.hallym.ac.kr/bbs/environ/230/rssList.do?row=50"
+    },
+    {
+      "name": "환경생명공학과 · 취업게시판",
+      "url": "https://www.hallym.ac.kr/bbs/environ/426/rssList.do?row=50"
+    },
+    {
+      "name": "식품영양학과 · 학사 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/fsn/227/rssList.do?row=50"
+    },
+    {
+      "name": "식품영양학과 · 영양사 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/fsn/228/rssList.do?row=50"
+    },
+    {
+      "name": "체육학과 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/sports/440/rssList.do?row=50"
+    },
+    {
+      "name": "식품영양학과 · 진로취업 경력개발 로드맵",
+      "url": "https://www.hallym.ac.kr/bbs/fsn/422/rssList.do?row=50"
+    },
+    {
+      "name": "체육학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/sports/239/rssList.do?row=50"
+    },
+    {
+      "name": "식품영양학과 · 취업 게시판",
+      "url": "https://www.hallym.ac.kr/bbs/fsn/423/rssList.do?row=50"
+    },
+    {
+      "name": "체육학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/sports/928/rssList.do?row=50"
+    },
+    {
+      "name": "체육학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/sports/441/rssList.do?row=50"
+    },
+    {
+      "name": "바이오헬스케어융합전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/bhcc/443/rssList.do?row=50"
+    },
+    {
+      "name": "바이오헬스케어융합전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/bhcc/242/rssList.do?row=50"
+    },
+    {
+      "name": "자연과학대학 자율전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/nsm/444/rssList.do?row=50"
+    },
+    {
+      "name": "청각학전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/audiology/437/rssList.do?row=50"
+    },
+    {
+      "name": "자연과학대학 자율전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/nsm/245/rssList.do?row=50"
+    },
+    {
+      "name": "청각학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/audiology/236/rssList.do?row=50"
+    },
+    {
+      "name": "청각학전공 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/audiology/438/rssList.do?row=50"
+    },
+    {
+      "name": "간호학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/nursing/931/rssList.do?row=50"
+    },
+    {
+      "name": "간호학과 · 취업정보",
+      "url": "https://www.hallym.ac.kr/bbs/nursing/458/rssList.do?row=50"
+    },
+    {
+      "name": "간호학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/nursing/464/rssList.do?row=50"
+    },
+    {
+      "name": "의학과 · 서식 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/med/1288/rssList.do?row=50"
+    },
+    {
+      "name": "의학과 · 학부 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/med/1274/rssList.do?row=50"
+    },
+    {
+      "name": "데이터사이언스학부 · 모집공고",
+      "url": "https://www.hallym.ac.kr/bbs/data/454/rssList.do?row=50"
+    },
+    {
+      "name": "융합과학수사학과 · 경찰",
+      "url": "https://www.hallym.ac.kr/bbs/police/475/rssList.do?row=50"
+    },
+    {
+      "name": "데이터사이언스학부 · 학부공지",
+      "url": "https://www.hallym.ac.kr/bbs/data/254/rssList.do?row=50"
+    },
+    {
+      "name": "융합과학수사학과 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/police/263/rssList.do?row=50"
+    },
+    {
+      "name": "자유교양전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/liberalarts/916/rssList.do?row=50"
+    },
+    {
+      "name": "MICE기획경영전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/mice/272/rssList.do?row=50"
+    },
+    {
+      "name": "기후변화융합전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/climatechange/269/rssList.do?row=50"
+    },
+    {
+      "name": "자유교양전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/liberalarts/918/rssList.do?row=50"
+    },
+    {
+      "name": "융합관광경영전공 · 공모전 소식",
+      "url": "https://www.hallym.ac.kr/bbs/tourism12/285/rssList.do?row=50"
+    },
+    {
+      "name": "융합관광경영전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/tourism12/284/rssList.do?row=50"
+    },
+    {
+      "name": "융합신소재공학전공 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/mse/504/rssList.do?row=50"
+    },
+    {
+      "name": "융합신소재공학전공 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/mse/287/rssList.do?row=50"
+    },
+    {
+      "name": "융합관광경영전공 · 취업특강",
+      "url": "https://www.hallym.ac.kr/bbs/tourism12/501/rssList.do?row=50"
+    },
+    {
+      "name": "대학혁신사업단 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/ispt/339/rssList.do?row=50"
+    },
+    {
+      "name": "대학혁신사업단 · 서식",
+      "url": "https://www.hallym.ac.kr/bbs/ispt/341/rssList.do?row=50"
+    },
+    {
+      "name": "대학혁신사업단 · 총괄협의회 소식지",
+      "url": "https://www.hallym.ac.kr/bbs/ispt/559/rssList.do?row=50"
+    },
+    {
+      "name": "글로벌협력대학원 · 서식/자료실",
+      "url": "https://www.hallym.ac.kr/bbs/gsgc/554/rssList.do?row=50"
+    },
+    {
+      "name": "글로벌협력대학원 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/gsgc/306/rssList.do?row=50"
+    },
+    {
+      "name": "시스템의생명과학연구소 · 보고서 및 논문",
+      "url": "https://www.hallym.ac.kr/bbs/gfrc/865/rssList.do?row=50"
+    },
+    {
+      "name": "시스템의생명과학연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/gfrc/605/rssList.do?row=50"
+    },
+    {
+      "name": "뉴프론티어 리서치 연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/nfrt/597/rssList.do?row=50"
+    },
+    {
+      "name": "융복합유전체연구소 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/multibiomics/857/rssList.do?row=50"
+    },
+    {
+      "name": "융복합유전체연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/multibiomics/625/rssList.do?row=50"
+    },
+    {
+      "name": "한국영양연구소 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/tkin/794/rssList.do?row=50"
+    },
+    {
+      "name": "한국영양연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/tkin/665/rssList.do?row=50"
+    },
+    {
+      "name": "인문학연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/hih/621/rssList.do?row=50"
+    },
+    {
+      "name": "인문학연구소 · 발제 자료",
+      "url": "https://www.hallym.ac.kr/bbs/hih/861/rssList.do?row=50"
+    },
+    {
+      "name": "글로벌 사회공헌 연구소 · 자료실",
+      "url": "https://www.hallym.ac.kr/bbs/igsr/1405/rssList.do?row=50"
+    },
+    {
+      "name": "사회의학연구소 · 기타 행사",
+      "url": "https://www.hallym.ac.kr/bbs/socmed/780/rssList.do?row=50"
+    },
+    {
+      "name": "사회의학연구소 · 월례 세미나",
+      "url": "https://www.hallym.ac.kr/bbs/socmed/779/rssList.do?row=50"
+    },
+    {
+      "name": "글로벌 사회공헌 연구소 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/igsr/601/rssList.do?row=50"
+    },
+    {
+      "name": "글로벌 사회공헌 연구소 · 채용 · 모집공고",
+      "url": "https://www.hallym.ac.kr/bbs/igsr/867/rssList.do?row=50"
+    },
+    {
+      "name": "한림청소년자립지원관 · 센터소식",
+      "url": "https://www.hallym.ac.kr/bbs/1318center/902/rssList.do?row=50"
+    },
+    {
+      "name": "한림청소년자립지원관 · 공지사항",
+      "url": "https://www.hallym.ac.kr/bbs/1318center/899/rssList.do?row=50"
+    }
+  ],
+  "unsupportedSites": [
+    {
+      "name": "EN",
+      "url": "https://www.hallym.ac.kr/sites/hallym_en/index.do",
+      "boards": 0
+    },
+    {
+      "name": "국제교류",
+      "url": "https://www.hallym.ac.kr/iao/index.do",
+      "boards": 0
+    },
+    {
+      "name": "취업안내",
+      "url": "https://job.hallym.ac.kr/hallymjob/index.do",
+      "boards": 0
+    },
+    {
+      "name": "글로벌학부",
+      "url": "https://www.hallym.ac.kr/sites/global/index.do",
+      "boards": 0
+    },
+    {
+      "name": "한국어교육센터",
+      "url": "https://www.hallym.ac.kr/sites/klec/index.do",
+      "boards": 0
+    },
+    {
+      "name": "소화기연구소",
+      "url": "https://www.hallym.ac.kr/sites/ildd/index.do",
+      "boards": 0
+    },
+    {
+      "name": "일송생명과학연구소",
+      "url": "https://www.hallym.ac.kr/sites/ilsongls/index.do",
+      "boards": 0
+    },
+    {
+      "name": "태동고전연구소",
+      "url": "https://www.hallym.ac.kr/sites/taedong/index.do",
+      "boards": 0
+    },
+    {
+      "name": "일본학연구소",
+      "url": "https://www.hallym.ac.kr/sites/jpn/index.do",
+      "boards": 0
+    },
+    {
+      "name": "인문사회 융합인재양성사업단",
+      "url": "https://www.hallym.ac.kr/huss/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/youth/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/hcc/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/media/index.do",
+      "boards": 0
+    },
+    {
+      "name": "융합인재학부 바로가기",
+      "url": "https://www.hallym.ac.kr/sites/honors/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/cge/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/future/index.do",
+      "boards": 0
+    },
+    {
+      "name": "홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/nano/index.do",
+      "boards": 0
+    },
+    {
+      "name": "장애학생지원센터 홈페이지",
+      "url": "https://www.hallym.ac.kr/sites/support/index.do",
+      "boards": 0
+    }
+  ],
+  "failures": []
+}

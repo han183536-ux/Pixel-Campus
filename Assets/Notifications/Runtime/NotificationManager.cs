@@ -26,7 +26,11 @@ namespace WebNotifications
 
         public static DateTime TodayKorea => DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(9)).Date;
 
-        private void OnEnable() { if (useWebView) Status = "WebView 연결 대기"; else loop = StartCoroutine(Poll()); }
+        private void OnEnable()
+        {
+            if (GetComponent<UniversityNoticeFeed>() == null) gameObject.AddComponent<UniversityNoticeFeed>();
+            if (useWebView) Status = "WebView 연결 대기"; else loop = StartCoroutine(Poll());
+        }
         private void OnDisable()
         {
             StopAllCoroutines();

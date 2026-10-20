@@ -12,7 +12,8 @@ namespace WebNotifications
         private NotificationData selected;
         private Vector2 scroll;
         private GUIStyle wrapped, appTitle, appButton, caption;
-        public bool IsNotificationPanelOpen => showNotifications;
+        public bool IsNotificationPanelOpen => showNotifications || showUniversityNotices;
+        private bool showUniversityNotices;
         private bool showNotifications, savedCameraMask;
         private int cameraMask;
         private bool trackingPanelPointer, panelPointerMoved, pullingPanel, pointerFromHandle;
@@ -33,6 +34,8 @@ namespace WebNotifications
 
         public void CloseNotifications()
         {
+            showUniversityNotices = false;
+            GetComponent<SmartleadWebView>()?.SetWebsiteNoticesVisible(false);
             showNotifications = false;
             scroll = Vector2.zero;
             ResetPanelGesture();
@@ -87,7 +90,8 @@ namespace WebNotifications
         private void Update()
         {
             var school = manager != null && manager.useWebView ? manager.GetComponent<SmartleadWebView>() : null;
-            if (!showNotifications || school == null || !school.IsAuthenticated || school.IsSchoolPageVisible)
+            if ((!showNotifications && !showUniversityNotices) || school == null ||
+                !showUniversityNotices && (!school.IsAuthenticated || school.IsSchoolPageVisible))
             { ResetPanelGesture(); return; }
             if (Input.touchCount > 1) { ResetPanelGesture(); return; }
             if (Input.touchCount == 1)
@@ -158,11 +162,34 @@ namespace WebNotifications
             float buttonWidth = 62 * scale, buttonHeight = 38 * scale;
             float buttonY = safe.y + 10 * scale;
             float right = safe.xMax - padding;
+            if (showUniversityNotices)
+            {
+                GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - buttonWidth - 3 * padding, CampusScreenLayout.HeaderHeight), "학교 공지", appTitle);
+                if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "돌아가기", appButton)) CloseNotifications();
+                var content = CampusScreenLayout.ContentArea;
+                var previousColor = GUI.color;
+                GUI.color = new Color32(23, 31, 46, 255);
+                GUI.DrawTexture(content, Texture2D.whiteTexture);
+                GUI.color = previousColor;
+                GUI.Box(content, GUIContent.none);
+                GUILayout.BeginArea(new Rect(content.x + padding, content.y + padding, content.width - 2 * padding, content.height - 2 * padding));
+                scroll = GUILayout.BeginScrollView(scroll);
+                GetComponent<UniversityNoticeFeed>()?.Draw(wrapped);
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+                return;
+            }
+            if (GUI.Button(new Rect(right - 2 * buttonWidth - 6 * scale, buttonY, buttonWidth, buttonHeight), "학교 공지", appButton))
+            {
+                CloseNotifications(); showUniversityNotices = true; scroll = Vector2.zero;
+                school.SetWebsiteNoticesVisible(true);
+                return;
+            }
             if (!campus)
             {
                 string title = school.IsAuthenticated ? "학교 알림 기록" : "SmartLEAD 로그인";
-                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - buttonWidth - 3 * padding, 28 * scale), title, appTitle);
-                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - buttonWidth - 3 * padding, 24 * scale),
+                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - 2 * buttonWidth - 4 * padding, 28 * scale), title, appTitle);
+                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - 2 * buttonWidth - 4 * padding, 24 * scale),
                     school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : "로그인하면 픽셀 캠퍼스로 이동합니다.", caption);
                 if (school.IsAuthenticated)
                 {

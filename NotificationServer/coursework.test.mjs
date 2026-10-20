@@ -70,7 +70,10 @@ test('Android bridge streams courses, assignments and deadlines with the same pr
 
 test('all enrolled courses are paginated independently of notifications, including empty courses', async () => {
   const {events, requests} = await capture({api: ({methodname, args}) => {
-    if (methodname.includes('timeline')) return args.offset === 0 ? {courses: [roster[0]], nextoffset: 1} : {courses: [roster[1]], nextoffset: 0};
+    if (methodname.includes('timeline')) {
+      assert.equal(args.classification, 'inprogress');
+      return args.offset === 0 ? {courses: [roster[0]], nextoffset: 1} : {courses: [roster[1]], nextoffset: 0};
+    }
     if (methodname === 'mod_assign_get_assignments') return {courses: roster.map(c => ({id: c.id, assignments: []}))};
     throw Error('unexpected API');
   }});
@@ -80,6 +83,36 @@ test('all enrolled courses are paginated independently of notifications, includi
   assert.equal(events.filter(e => e.kind === 'assignments_complete' && e.found).length, 2);
   assert.ok(!events.some(e => e.kind === 'assignment'));
   assert.ok(requests.every(r => !r.path.includes('/login/')));
+});
+
+test('past and future offerings cannot enter the current roster, while overdue current work remains', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const {events, requests} = await capture({api: ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [
+      {...roster[0], startdate: now - 86400, enddate: now + 86400},
+      {...roster[0], id: 70, enddate: now - 1},
+      {...roster[1], id: 80, startdate: now + 86400}
+    ], nextoffset: 0};
+    if (methodname === 'mod_assign_get_assignments') return {courses: [{id: 7,
+      assignments: [{...assignment(11, 91), duedate: now - 3600}]}]};
+    if (methodname === 'mod_assign_get_submission_status') return {lastattempt: {submission: {status: 'new'}}};
+    return {events: []};
+  }});
+  assert.deepEqual(events.filter(e => e.kind === 'course').map(e => e.items[0].courseId), [7]);
+  const task = events.find(e => e.kind === 'assignment').items[0];
+  assert.equal(task.dueAt, now - 3600);
+  assert.equal(task.submitted, false);
+  const query = requests.map(r => r.options?.body && JSON.parse(r.options.body)[0])
+    .find(call => call?.methodname === 'mod_assign_get_assignments');
+  assert.deepEqual(query.args.courseids, [7]);
+});
+
+test('an empty current roster completes successfully without retrieving historical enrolments', async () => {
+  const {events, requests} = await capture({api: ({methodname}) =>
+    methodname.includes('timeline') ? {courses: [], nextoffset: 0} : {events: []}});
+  assert.equal(events.filter(e => e.kind === 'course').length, 0);
+  assert.ok(events.some(e => e.kind === 'courses_complete'));
+  assert.ok(!requests.some(r => r.path === '/my/' || r.path === '/'));
 });
 
 test('submission states and personal extension deadlines are preserved without confusing module and assignment IDs', async () => {

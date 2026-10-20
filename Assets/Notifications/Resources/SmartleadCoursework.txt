@@ -65,9 +65,15 @@
       let offset = 0;
       for (;;) {
         const result = await api('core_course_get_enrolled_courses_by_timeline_classification',
-          {classification: 'allincludinghidden', limit: 50, offset, sort: 'fullname'});
+          {classification: 'inprogress', limit: 50, offset, sort: 'fullname'});
         if (!Array.isArray(result?.courses)) throw Error('과목 목록 형식 확인 필요');
-        all.push(...result.courses.map(courseInfo));
+        const now = Math.floor(Date.now() / 1000);
+        // Some installations return extra records despite the classification.
+        // Exclude explicitly ended/upcoming courses; do not use assignment due dates
+        // to decide enrolment (current courses can have overdue work).
+        all.push(...result.courses.filter(course =>
+          !(Number(course.enddate) > 0 && Number(course.enddate) <= now) &&
+          !(Number(course.startdate) > now)).map(courseInfo));
         if (!(Number(result.nextoffset) > offset)) break;
         offset = Number(result.nextoffset);
       }

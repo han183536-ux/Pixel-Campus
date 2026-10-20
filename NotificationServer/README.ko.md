@@ -1,5 +1,7 @@
 # Unity · SmartLEAD 알림 기본 틀
 
+현재 기본 화면은 로그인된 WebView로 SmartLEAD 과제·알림을 수집합니다. 홈페이지 공개 공지는 별도의 Unity `UniversityNoticeFeed`가 학교 공식 RSS를 직접 조회합니다. 상단 **학교 공지**에서 메인·SW중심대학사업단·학과·부속기관의 공개 게시판 241개를 통합 검색하고 **신청·제출 일정**에서 시작/마감까지 남은 시간을 확인할 수 있습니다. 선착순은 시작일을 우선 표시합니다. 공개 원문의 신청·접수·제출 기간을 분석하며 로그인 전용·이미지/첨부파일만으로 안내된 일정은 원문 확인이 필요합니다. 이 기능에는 아래 Node 서버나 SmartLEAD 토큰이 필요하지 않습니다. 기본 목록은 `node NotificationServer/discover-university-boards.mjs`로 공식 링크에서 재생성하고 `./NotificationServer/test-university-notices.ps1`로 RSS·기간 분석을 검증합니다. 추가 RSS는 화면의 **게시판 추가**로 등록할 수 있습니다. 자세한 범위는 루트 `README.md`를 참고하세요. 아래 서버 연결 방식은 대체 연결입니다.
+
 ## 1. Unity만 실행하기
 
 현재 `Assets/Scenes/NotificationDemo.unity`는 실제 서버 연결 모드로 저장되어 있습니다. Windows Unity Editor에서 Play를 누르면 로컬 서버가 자동 실행됩니다. Game 화면의 학교 계정 로그인 폼을 사용합니다.
