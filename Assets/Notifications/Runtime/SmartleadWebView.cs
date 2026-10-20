@@ -44,6 +44,8 @@ namespace WebNotifications
         public string CourseworkStatus => networkWasUnavailable ? Status : courseworkStatus;
         private string selectedCourseKey, selectedCourseTitle;
         private Notice selectedNotice;
+        private bool editingClassroom;
+        private string classroomInput = "";
         public string Status { get; private set; } = "알림 확인 준비 중";
         public string MessageStatus { get; private set; } = "쪽지 확인 준비 중";
         private string apiStatus = "Moodle 알림 API 확인 중";
@@ -603,6 +605,7 @@ namespace WebNotifications
 
         public void SelectCourse(string key, string title)
         {
+            editingClassroom = false;
             selectedCourseKey = key;
             selectedCourseTitle = title;
             selectedNotice = string.IsNullOrEmpty(key) ? null :
@@ -671,6 +674,7 @@ namespace WebNotifications
             if (!string.IsNullOrEmpty(selectedCourseKey))
             {
                 GUILayout.Label(selectedCourseTitle + " · 과제 / 알림", label);
+                DrawClassroom(label);
                 if (GUILayout.Button("전체 알림 보기", touchButton)) SelectCourse(null, null);
             }
             int count = 0;
@@ -685,6 +689,37 @@ namespace WebNotifications
                         !assignmentsConfirmed.Contains(course.courseId)) assignmentsKnown = false;
                 GUILayout.Label(assignmentsKnown && notificationsConfirmed ? "알림 없음" : "알림 · 과제 확인 중이거나 조회가 필요합니다.", label);
             }
+        }
+
+        private string ClassroomCode(Notice item)
+        {
+            var key = NoticeCourseKey(item);
+            return key != null && key.StartsWith("code:", StringComparison.Ordinal) ? key.Substring(5) : item.courseCode;
+        }
+
+        private void DrawClassroom(GUIStyle label)
+        {
+            // Use the same exact course/section identity as the notification filter.
+            var code = selectedCourseKey.StartsWith("code:", StringComparison.Ordinal) ? selectedCourseKey.Substring(5) : null;
+            if (code == null)
+                foreach (var course in enrolledCourses.Values)
+                    if (NoticeCourseKey(course) == selectedCourseKey) { code = course.courseCode; break; }
+            GUILayout.Label(CourseClassrooms.Label(code), label);
+            GUILayout.Label(CourseClassrooms.Source(code), label);
+            if (string.IsNullOrWhiteSpace(code)) return;
+            if (!editingClassroom && GUILayout.Button("강의실 입력 / 수정", touchButton))
+            { classroomInput = CourseClassrooms.Room(code); editingClassroom = true; }
+            if (!editingClassroom) return;
+            GUILayout.Label(CourseClassrooms.Term + "학기 · 수강신청 시간표의 강의실 (요일별 여러 교실 입력 가능)", label);
+            classroomInput = GUILayout.TextField(classroomInput, 120, GUILayout.MinHeight(34 * CampusScreenLayout.Scale));
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && !string.IsNullOrWhiteSpace(classroomInput);
+            if (GUILayout.Button("이 기기에 저장", touchButton))
+            { CourseClassrooms.Save(code, classroomInput); editingClassroom = false; }
+            GUI.enabled = enabled;
+            if (GUILayout.Button("입력값 초기화", touchButton))
+            { CourseClassrooms.Reset(code); classroomInput = CourseClassrooms.Room(code); editingClassroom = false; }
+            if (GUILayout.Button("취소", touchButton)) editingClassroom = false;
         }
 
         private void DrawNoticeList(List<Notice> items, string kind, GUIStyle label, ref int count)
@@ -709,6 +744,7 @@ namespace WebNotifications
                 if (!ReferenceEquals(selectedNotice, item)) continue;
                 GUILayout.BeginVertical(GUI.skin.box);
                 GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? "미제출" : "제출 확인 필요" : ReadLabel(item)), label);
+                GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), label);
                 GUILayout.Label(time, label);
                 if (due > 0 && due <= 253402300799L)
                     GUILayout.Label("마감: " + DateTimeOffset.FromUnixTimeSeconds(due).ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") + " (한국 시간)", label);

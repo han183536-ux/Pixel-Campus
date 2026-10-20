@@ -5,6 +5,60 @@ using UnityEngine.Rendering;
 
 namespace WebNotifications
 {
+    // Local classroom notes are independent of the SmartLEAD authentication session.
+    internal static class CourseClassrooms
+    {
+        [Serializable] private class Catalog { public string term; public Entry[] entries; }
+        [Serializable] private class Entry { public string code, room, note; }
+        private static Catalog catalog;
+        public static string Term
+        {
+            get
+            {
+                var now = DateTime.UtcNow.AddHours(9);
+                return (now.Month <= 2 ? now.Year - 1 : now.Year) + "-" + (now.Month >= 3 && now.Month <= 8 ? "1" : "2");
+            }
+        }
+        private static string PreferenceKey(string code) => "PixelCampus.Classroom." + Term + "." + code;
+        private static Entry Find(string code)
+        {
+            if (catalog == null)
+            {
+                var asset = Resources.Load<TextAsset>("CourseClassrooms");
+                catalog = asset != null ? JsonUtility.FromJson<Catalog>(asset.text) : new Catalog();
+            }
+            return catalog.term == Term && catalog.entries != null ? Array.Find(catalog.entries, entry => entry.code == code) : null;
+        }
+        public static string Room(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return "";
+            return PlayerPrefs.HasKey(PreferenceKey(code)) ? PlayerPrefs.GetString(PreferenceKey(code)) : Find(code)?.room ?? "";
+        }
+        public static string Label(string code)
+        {
+            var room = Room(code);
+            return string.IsNullOrWhiteSpace(room) ? "강의실 미확인" : "강의실 " + room;
+        }
+        public static string Source(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return "과목·분반을 확인해야 강의실을 저장할 수 있습니다.";
+            if (PlayerPrefs.HasKey(PreferenceKey(code))) return Term + "학기 · 직접 입력 · 이 기기에 저장됨";
+            return Find(code)?.note ?? "수강신청 시간표에서 확인한 강의실을 직접 입력할 수 있습니다.";
+        }
+        public static void Save(string code, string room)
+        {
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(room)) return;
+            PlayerPrefs.SetString(PreferenceKey(code), room.Trim());
+            PlayerPrefs.Save();
+        }
+        public static void Reset(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return;
+            PlayerPrefs.DeleteKey(PreferenceKey(code));
+            PlayerPrefs.Save();
+        }
+    }
+
     public sealed class CourseCubeNotice
     {
         public int courseId, notifications, messages, pendingAssignments, unknownAssignments;
@@ -132,7 +186,7 @@ namespace WebNotifications
             float scale = CampusScreenLayout.Scale;
             columns = Mathf.Clamp(Mathf.FloorToInt(mapCamera.pixelWidth / (120 * scale)), 2, 5);
             cellWidth = (mapCamera.pixelWidth - 18 * scale) / columns;
-            cellHeight = 148 * scale;
+            cellHeight = 182 * scale;
             gridHeight = Mathf.CeilToInt(ordered.Count / (float)columns) * cellHeight;
             var school = GetComponent<SmartleadWebView>();
             contentHeight = gridHeight + 12 * scale + (school != null ? school.AgendaHeight : 0);
@@ -175,7 +229,8 @@ namespace WebNotifications
                 var item = ordered[index].data;
                 var tile = new Rect(index % columns * cellWidth + 3 * scale, index / columns * cellHeight, cellWidth - 6 * scale, cellHeight);
                 var title = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
-                GUI.Label(new Rect(tile.x, tile.y + 49 * scale, tile.width, tile.height - 49 * scale), title + "\n" + item.Summary, label);
+                GUI.Label(new Rect(tile.x, tile.y + 49 * scale, tile.width, tile.height - 49 * scale),
+                    title + "\n" + CourseClassrooms.Label(item.courseCode) + "\n" + item.Summary, label);
                 if (detail != null && GUI.Button(tile, GUIContent.none, GUIStyle.none)) detail.OpenCourseNotifications(item.Key, title);
             }
             var school = GetComponent<SmartleadWebView>();
