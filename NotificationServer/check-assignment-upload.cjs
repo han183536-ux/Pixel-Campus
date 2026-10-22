@@ -52,9 +52,9 @@ async function main() {
       const request = route.request();
       if (request.method() === 'POST') {
         uploads.push({headers: request.headers(), body: request.postDataBuffer()});
-        await route.fulfill({contentType: 'text/html', body: '<p id="saved">파일 저장 완료 (예시)</p>'});
+        await route.fulfill({contentType: 'text/html; charset=utf-8', body: '<p id="saved">파일 저장 완료 (예시)</p>'});
       } else {
-        await route.fulfill({contentType: 'text/html', body: '<form method="post" action="/save" enctype="multipart/form-data"><input type="file" name="submission_files[]" multiple><button type="submit">저장</button></form>'});
+        await route.fulfill({contentType: 'text/html; charset=utf-8', body: '<form method="post" action="/save" enctype="multipart/form-data"><input type="file" name="submission_files[]" multiple><button type="submit">저장</button></form>'});
       }
     });
     await uploadPage.goto('https://upload-test.invalid/assignment');

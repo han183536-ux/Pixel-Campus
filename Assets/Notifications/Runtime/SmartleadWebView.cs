@@ -455,7 +455,7 @@ namespace WebNotifications
 
         public void Refresh()
         {
-            if (signingOut) return;
+            if (signingOut || assignmentSubmissionVisible) return;
             if (view == null) return;
             if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
             {
