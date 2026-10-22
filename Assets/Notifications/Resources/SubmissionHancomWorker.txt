@@ -1,0 +1,40 @@
+param([string]$InputFile, [string]$OutputFile, [string]$InputFormat, [string]$OutputFormat, [string]$ResultFile)
+$ErrorActionPreference = 'Stop'
+$document = $null
+$stage = '한글 실행'
+$ownerProcessId = [uint32]0
+$existing = @(Get-Process Hwp -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+try {
+    $document = New-Object -ComObject HWPFrame.HwpObject
+    # Record only a newly created process owned by this automation object.
+    Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class PixelCampusHwpWindow{[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr hWnd,out uint processId);}'
+    $stage = '변환 창 확인'
+    $window = $document.XHwpWindows.Item(0)
+    [PixelCampusHwpWindow]::GetWindowThreadProcessId([IntPtr]$window.WindowHandle, [ref]$ownerProcessId) | Out-Null
+    if ($ownerProcessId -eq 0 -or $existing -contains $ownerProcessId) {
+        throw '독립된 한글 변환 창을 만들지 못했습니다. 열려 있는 문서는 변경하지 않았습니다.'
+    }
+    $owned = Get-Process -Id $ownerProcessId
+    @([string]$ownerProcessId, [string]$owned.StartTime.ToUniversalTime().Ticks) | Set-Content -LiteralPath (Join-Path (Split-Path $InputFile -Parent) 'owned-process.txt')
+    $window.Visible = $false
+    # Do not register an all-path approval module or dismiss file-access prompts.
+    # Hancom's own permission/password dialogs remain authoritative.
+    $stage = '원본 불러오기'
+    if (-not $document.Open($InputFile, $InputFormat, 'versionwarning:false;')) {
+        throw '원본 문서를 한글에서 열지 못했습니다. 암호·문서 손상·지원 형식을 확인해 주세요.'
+    }
+    $stage = '한글 형식 저장'
+    if (-not $document.SaveAs($OutputFile, $OutputFormat, '')) {
+        throw '요청한 한글 형식으로 저장하지 못했습니다. 설치된 한글의 편집·저장 기능을 확인해 주세요.'
+    }
+    'OK' | Set-Content -LiteralPath $ResultFile -Encoding UTF8
+    exit 0
+} catch {
+    ($stage + ': ' + $_.Exception.Message) | Set-Content -LiteralPath $ResultFile -Encoding UTF8
+    exit 1
+} finally {
+    if ($document -and $ownerProcessId -and $existing -notcontains $ownerProcessId) {
+        try { $document.Clear(1) | Out-Null; $document.Quit() } catch { }
+    }
+    if ($document) { [System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($document) | Out-Null }
+}

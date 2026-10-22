@@ -1,0 +1,1 @@
+`submission-conversion.docx` is a synthetic python-docx fixture containing a Korean paragraph and a two-cell table. It contains no user/course data. The optional Hancom integration check uses it to verify genuine DOCX → HWP/HWPX conversion, Korean content/table preservation and unchanged source bytes.

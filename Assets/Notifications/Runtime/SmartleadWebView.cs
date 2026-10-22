@@ -27,6 +27,9 @@ namespace WebNotifications
         private WebViewObject assignmentView;
         private bool assignmentVisible, assignmentAttachmentVisible;
         private bool assignmentSubmissionVisible, refreshAssignmentAfterSubmission;
+        private SubmissionConversionBridge submissionConversion;
+        private bool submissionConversionPrepared;
+        [Serializable] private class ConversionSettings { public string nonce; public bool available; }
         private Notice assignmentDocumentTarget;
         private string assignmentDocumentRequest, assignmentDocumentNonce, assignmentDocumentHtml;
         private string pendingAssignmentHtml;
@@ -111,7 +114,7 @@ namespace WebNotifications
                 view.Init(cb: Receive, err: _ => { Status = "SmartLEAD 연결 실패"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면 연결에 실패했습니다. 뒤로 돌아가 다시 열어 주세요."; },
                     httpErr: _ => { Status = "SmartLEAD 페이지 오류"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면에서 오류가 발생했습니다. 학교 화면의 안내를 확인해 주세요."; },
                     started: url => { currentUrl = url; nonce = null; HasResult = false; HasMessagesResult = false;
-                        if (assignmentSubmissionVisible) return;
+                        if (assignmentSubmissionVisible) { submissionConversionPrepared = false; submissionConversion?.Dispose(); return; }
                         if (SchoolPage(url) && new Uri(url).AbsolutePath.Equals("/login/logout.php", StringComparison.OrdinalIgnoreCase))
                         {
                             RequireFreshLogin();
@@ -203,7 +206,24 @@ namespace WebNotifications
         {
             // Keep the live school file picker, scripts, session and save forms intact.
             // Collectors must not navigate or replace a submission in progress.
-            if (assignmentSubmissionVisible) { AssignmentRenderStatus = null; return; }
+            if (assignmentSubmissionVisible)
+            {
+                AssignmentRenderStatus = null;
+                if (!submissionConversionPrepared && SchoolPage(currentUrl))
+                {
+                    var prepare = Resources.Load<TextAsset>("SmartleadSubmissionPrepare");
+                    var worker = Resources.Load<TextAsset>("SubmissionHancomWorker");
+                    if (prepare != null && worker != null)
+                    {
+                        var settings = new ConversionSettings { nonce = Guid.NewGuid().ToString("N"), available = SubmissionDocumentConverter.IsAvailable };
+                        if (submissionConversion == null) submissionConversion = new SubmissionConversionBridge();
+                        submissionConversion.Configure(settings.nonce, currentUrl, worker.text);
+                        submissionConversionPrepared = true;
+                        view.EvaluateJS(prepare.text.Replace("__SUBMISSION_CONVERSION_SETTINGS__", JsonUtility.ToJson(settings)));
+                    }
+                }
+                return;
+            }
             if (!SchoolPage(currentUrl) || new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             {
                 if (refreshAssignmentAfterSubmission) DismissAssignmentDetail();
@@ -273,6 +293,7 @@ namespace WebNotifications
             if (view == null) return;
             if (assignmentVisible)
             {
+                if (assignmentSubmissionVisible) submissionConversion?.Poll(view.EvaluateJS);
                 ApplyWebViewMargins();
                 if (pendingAssignmentHtml != null && assignmentView != null && assignmentView.IsInitialized())
                 {
@@ -481,6 +502,11 @@ namespace WebNotifications
             Capture data;
             try { data = JsonUtility.FromJson<Capture>(message); } catch { return; }
             if (data == null) return;
+            if (data.kind == "submission_convert")
+            {
+                if (assignmentSubmissionVisible && SchoolPage(currentUrl)) submissionConversion?.Receive(message, currentUrl);
+                return;
+            }
             if (data.kind == "login_ready" || data.kind == "login_existing_session" || data.kind == "login_preferences" || data.kind == "login_submit")
             {
                 if (signingOut || string.IsNullOrEmpty(data.nonce) || !LoginPage(data.page) ||
@@ -1152,6 +1178,7 @@ namespace WebNotifications
             assignmentDocumentDeadline = assignmentRendererDeadline = 0;
             pendingAssignmentHtml = null;
             assignmentSubmissionVisible = true; assignmentAttachmentVisible = false;
+            submissionConversionPrepared = false;
             refreshAssignmentAfterSubmission = false;
             AssignmentRenderStatus = "학교 제출 화면을 여는 중…";
             assignmentView?.EvaluateJS("document.querySelectorAll('video,audio').forEach(function(player){player.pause();});");
@@ -1166,6 +1193,7 @@ namespace WebNotifications
         {
             if (assignmentSubmissionVisible)
             {
+                submissionConversion?.Dispose();
                 assignmentSubmissionVisible = false;
                 refreshAssignmentAfterSubmission = true;
                 view.SetVisibility(false);
@@ -1195,6 +1223,7 @@ namespace WebNotifications
             assignmentVisible = assignmentAttachmentVisible = false;
             if (assignmentSubmissionVisible) view?.SetVisibility(false);
             assignmentSubmissionVisible = refreshAssignmentAfterSubmission = false;
+            submissionConversion?.Dispose();
             assignmentDocumentRequest = assignmentDocumentHtml = assignmentDocumentNonce = null;
             pendingAssignmentHtml = null; AssignmentRenderStatus = null; assignmentRendererDeadline = 0;
             assignmentDocumentParts = null; assignmentDocumentTarget = null; assignmentDocumentDeadline = 0;
@@ -1226,7 +1255,7 @@ namespace WebNotifications
         }
 
         private void OnApplicationQuit() { view?.SaveCookies(); }
-        private void OnDestroy() { pendingPassword = null; if (assignmentView != null) Destroy(assignmentView.gameObject); if (view != null) { view.SaveCookies(); Destroy(view.gameObject); } }
+        private void OnDestroy() { submissionConversion?.Dispose(); pendingPassword = null; if (assignmentView != null) Destroy(assignmentView.gameObject); if (view != null) { view.SaveCookies(); Destroy(view.gameObject); } }
     }
 }
 

@@ -1,0 +1,140 @@
+(() => {
+  const settings = __SUBMISSION_CONVERSION_SETTINGS__;
+  if (location.origin !== 'https://smartlead.hallym.ac.kr' || !/^\/mod\/(assign|ubassign)\/view\.php$/.test(location.pathname) || window.PixelCampusSubmission) return;
+  const page = location.href, requests = new Map(), replay = new WeakSet(), accepts = new WeakMap();
+  let busy = false;
+  const panel = document.createElement('section');
+  panel.id = 'pixelcampus-file-conversion';
+  panel.setAttribute('aria-label', '픽셀 캠퍼스 제출 파일 변환');
+  Object.assign(panel.style, {padding:'16px',margin:'12px 0',background:'#eef4ff',border:'1px solid #b9cbe7',borderRadius:'8px',color:'#202326'});
+  const label = document.createElement('label'); label.textContent = '제출 파일 형식 ';
+  const select = document.createElement('select'); select.id = 'pixelcampus-target-format';
+  for (const [value, text] of [['original','원본 유지'],['hwp','한글 문서 (.hwp)'],['hwpx','한글 표준 문서 (.hwpx)']]) {
+    const option = document.createElement('option'); option.value = value; option.textContent = text;
+    option.disabled = value !== 'original' && !settings.available; select.append(option);
+  }
+  label.append(select); panel.append(label);
+  const help = document.createElement('p');
+  help.textContent = settings.available ? 'DOCX·DOC·RTF·HWP·HWPX를 실제 한글 형식으로 변환합니다. 파일 선택 버튼으로 추가하세요. 원본은 유지됩니다.' : '한글 형식 변환은 Windows PC의 한컴오피스 한글이 필요합니다. 이 기기에서는 원본 파일을 첨부할 수 있습니다.';
+  const status = document.createElement('p'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite');
+  const stop=document.createElement('button');stop.type='button';stop.textContent='변환 취소';stop.hidden=true;
+  stop.addEventListener('click',()=>{
+    for(const [id,request] of requests){clearTimeout(request.timer);cancel(id);request.reject(Error('문서 변환을 취소했습니다.'));}
+    requests.clear();
+  });
+  panel.append(help, status, stop);
+  (document.querySelector('#region-main, [role="main"]') || document.body).prepend(panel);
+  const say = text => { status.textContent = text; };
+  function send(packet) {
+    const payload = JSON.stringify({...packet, kind:'submission_convert', nonce:settings.nonce, page});
+    if (typeof window.Unity?.call === 'function') window.Unity.call(payload);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(payload);
+    else throw Error('파일 변환 연결을 사용할 수 없습니다. 앱에서 제출 화면을 다시 열어 주세요.');
+  }
+  function cancel(id) {
+    try { send({operation:'cancel', requestId:id}); } catch { }
+  }
+  async function convert(file, format) {
+    if (!/\.(docx|doc|rtf|hwp|hwpx)$/i.test(file.name)) throw Error('DOCX·DOC·RTF·HWP·HWPX 문서를 선택해 주세요. PDF·이미지를 편집 가능한 한글 문서로 변환하는 기능은 지원하지 않습니다.');
+    if (!file.size || file.size > 16 * 1024 * 1024) throw Error('변환할 문서는 0바이트보다 크고 16MB 이하여야 합니다.');
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), value=>value.toString(16).padStart(2,'0')).join('');
+    const result = new Promise((resolve,reject) => {
+      const timer = setTimeout(()=>{ requests.delete(id); cancel(id); reject(Error('변환 시간이 초과되었습니다. 한글의 파일 접근 승인·문서 암호·실행 상태를 확인해 주세요.')); },150000);
+      requests.set(id, {resolve,reject,timer,parts:[],total:0,bytes:0});
+    });
+    // Attach the rejection handler before transferring potentially large files.
+    result.catch(()=>{});
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if(!requests.has(id)) return await result;
+      send({operation:'begin',requestId:id,name:file.name,format,size:file.size,total:Math.ceil(bytes.length/18000)});
+      for (let offset=0,index=0; offset<bytes.length; offset+=18000,index++) {
+        if (!requests.has(id)) return await result;
+        let binary=''; for (const value of bytes.subarray(offset,offset+18000)) binary+=String.fromCharCode(value);
+        send({operation:'chunk',requestId:id,index,data:btoa(binary)});
+        if (index%4===3) await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      send({operation:'finish',requestId:id});
+      const blob = await result;
+      return new File([blob], file.name.replace(/\.[^.]+$/,'')+'.'+format, {type:format==='hwp'?'application/x-hwp':'application/hwp+zip',lastModified:Date.now()});
+    } catch (error) {
+      const request=requests.get(id);
+      if (request) { clearTimeout(request.timer); requests.delete(id); cancel(id); }
+      throw error;
+    }
+  }
+  window.PixelCampusSubmission = {
+    receive(reply) {
+      if (reply.nonce!==settings.nonce) return;
+      const request=requests.get(reply.requestId); if(!request) return;
+      const fail=message=>{clearTimeout(request.timer);requests.delete(reply.requestId);cancel(reply.requestId);request.reject(Error(message));};
+      if(reply.status==='error') {fail(reply.error||'한글 문서 변환에 실패했습니다.');return;}
+      if(reply.status!=='chunk'||!Number.isInteger(reply.total)||reply.total<1||reply.total>1865||reply.index!==request.parts.length||typeof reply.data!=='string'||reply.data.length>24000) {fail('변환 결과가 올바르지 않습니다.');return;}
+      if(request.total&&request.total!==reply.total){fail('변환 결과 일부가 누락되었습니다.');return;}
+      request.total=reply.total;
+      let bytes;try{bytes=Uint8Array.from(atob(reply.data),value=>value.charCodeAt(0));}catch{fail('변환 결과를 읽지 못했습니다.');return;}
+      request.bytes+=bytes.length;if(request.bytes>32*1024*1024){fail('변환 결과가 32MB를 초과했습니다.');return;}
+      request.parts.push(bytes);
+      if(request.parts.length===request.total){clearTimeout(request.timer);requests.delete(reply.requestId);request.resolve(new Blob(request.parts));}
+    }
+  };
+  function approve(files) {
+    return new Promise(resolve=>{
+      const overlay=document.createElement('div');overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','변환 파일 확인');
+      Object.assign(overlay.style,{position:'fixed',inset:'0',zIndex:'2147483647',background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'});
+      const card=document.createElement('div');Object.assign(card.style,{background:'white',color:'#202326',padding:'22px',borderRadius:'10px',maxWidth:'520px',width:'100%',maxHeight:'85vh',overflow:'auto'});
+      const title=document.createElement('h2');title.textContent='변환 파일 확인';card.append(title);
+      for(const file of files){const item=document.createElement('p');item.textContent=file.name+' · '+Math.ceil(file.size/1024)+' KB';item.style.overflowWrap='anywhere';card.append(item);}
+      const note=document.createElement('p');note.textContent='한글 형식으로 변환했습니다. 표·글꼴·페이지 배치는 원본과 달라질 수 있습니다. 계속하면 학교 파일 선택도구에 전달합니다.';card.append(note);
+      const previousFocus=document.activeElement;
+      const finish=value=>{overlay.remove();previousFocus?.focus();resolve(value);};
+      const yes=document.createElement('button');yes.type='button';yes.textContent='변환 파일 사용';yes.onclick=()=>finish(true);
+      const no=document.createElement('button');no.type='button';no.textContent='취소';no.onclick=()=>finish(false);no.style.marginLeft='12px';
+      overlay.addEventListener('keydown',event=>{if(event.key==='Escape')finish(false);if(event.key==='Tab'){event.preventDefault();(document.activeElement===yes?no:yes).focus();}});
+      card.append(yes,no);overlay.append(card);document.body.append(overlay);yes.focus();
+    });
+  }
+  function restoreAccept(input){if(accepts.has(input)){const original=accepts.get(input);if(original===null)input.removeAttribute('accept');else input.setAttribute('accept',original);accepts.delete(input);}}
+  window.addEventListener('click',event=>{
+    const input=event.target;
+    if(!(input instanceof HTMLInputElement)||input.type!=='file')return;
+    if(busy){event.preventDefault();event.stopImmediatePropagation();say('이전 문서의 변환을 먼저 완료하거나 취소해 주세요.');return;}
+    if(select.value!=='original'){
+      if(!accepts.has(input))accepts.set(input,input.getAttribute('accept'));
+      input.accept='.docx,.doc,.rtf,.hwp,.hwpx';
+    }else restoreAccept(input);
+  },true);
+  window.addEventListener('change',async event=>{
+    const input=event.target;
+    if(!(input instanceof HTMLInputElement)||input.type!=='file')return;
+    if(replay.has(input)){replay.delete(input);return;}
+    const target=select.value;restoreAccept(input);
+    if(target==='original')return;
+    event.preventDefault();event.stopImmediatePropagation();
+    const originals=Array.from(input.files||[]);input.value='';
+    if(!originals.length)return;
+    if(busy){say('이전 문서의 변환을 먼저 완료해 주세요.');return;}
+    busy=true;select.disabled=true;stop.hidden=false;
+    try{
+      if(!settings.available)throw Error('이 기기에서는 한글 형식 변환을 사용할 수 없습니다.');
+      if(!input.isConnected)throw Error('학교 파일 선택창이 닫혔습니다. 다시 선택해 주세요.');
+      const converted=[];
+      for(let index=0;index<originals.length;index++){
+        say('한글 변환 중 '+(index+1)+'/'+originals.length+' · '+originals[index].name);
+        converted.push(await convert(originals[index],target));
+      }
+      stop.hidden=true;
+      if(!await approve(converted)){say('첨부를 취소했습니다. 원본 파일은 유지됩니다.');return;}
+      if(!input.isConnected)throw Error('학교 파일 선택창이 닫혔습니다. 다시 선택해 주세요.');
+      const transfer=new DataTransfer();for(const file of converted)transfer.items.add(file);
+      input.files=transfer.files;
+      if(input.files.length!==converted.length)throw Error('변환 파일을 첨부하지 못했습니다.');
+      replay.add(input);input.dispatchEvent(new Event('change',{bubbles:true}));
+      say(converted.map(file=>file.name).join(', ')+' · 변환 파일을 전달했습니다. 학교 화면에서 업로드·저장·제출 여부를 확인하세요.');
+    }catch(error){input.value='';say(error.message||'문서 변환에 실패했습니다. 원본 파일은 업로드하지 않았습니다.');}
+    finally{busy=false;select.disabled=false;stop.hidden=true;}
+  },true);
+  window.addEventListener('submit',event=>{if(busy){event.preventDefault();event.stopImmediatePropagation();say('문서 변환과 파일 확인을 마친 뒤 저장해 주세요.');}},true);
+  window.addEventListener('drop',event=>{if(select.value!=='original'&&event.dataTransfer?.files?.length){event.preventDefault();event.stopImmediatePropagation();say('한글 변환을 적용하려면 파일 선택 버튼으로 문서를 추가해 주세요.');}},true);
+  window.addEventListener('pagehide',()=>{for(const [id,request]of requests){clearTimeout(request.timer);cancel(id);request.reject(Error('제출 화면이 닫혔습니다.'));}requests.clear();});
+})();
