@@ -201,10 +201,10 @@ namespace WebNotifications
             }
             if (!campus)
             {
-                string title = school.IsAuthenticated ? "학교 알림 기록" : "SmartLEAD 로그인";
+                string title = school.IsLecturePageVisible ? "동영상 강의" : school.IsAuthenticated ? "학교 알림 기록" : "SmartLEAD 로그인";
                 GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - 2 * buttonWidth - 4 * padding, 28 * scale), title, appTitle);
                 GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - 2 * buttonWidth - 4 * padding, 24 * scale),
-                    school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : "로그인하면 픽셀 캠퍼스로 이동합니다.", caption);
+                    school.IsLecturePageVisible ? "시청 후 학교의 출석 상태를 확인하세요." : school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : "로그인하면 픽셀 캠퍼스로 이동합니다.", caption);
                 if (school.IsAuthenticated)
                 {
                     if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "캠퍼스", appButton)) school.CloseSchoolPage();

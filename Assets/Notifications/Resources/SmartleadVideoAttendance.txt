@@ -1,0 +1,175 @@
+(() => {
+  if (location.origin !== 'https://smartlead.hallym.ac.kr') return;
+  const nonce = '__UNITY_NONCE__', origin = location.origin;
+  const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+  let expired = false;
+  const send = packet => {
+    if (expired && packet.kind !== 'authentication') return;
+    const value = JSON.stringify({...packet,nonce,page:location.href});
+    if(typeof window.Unity?.call==='function')window.Unity.call(value);
+    else if(typeof window.chrome?.webview?.postMessage==='function')window.chrome.webview.postMessage(value);
+  };
+  function videoUrl(value) {
+    try {
+      const url=new URL(value,origin);
+      if(url.origin!==origin||url.username||url.password||!/^\/mod\/(vod|ubvod)\/view(?:er)?\.php$/.test(url.pathname)||!/^\d+$/.test(url.searchParams.get('id')||'')||Number(url.searchParams.get('id'))<=0)return null;
+      // Normalize viewer/view links to the same activity without opening a player.
+      return origin+url.pathname.replace('/viewer.php','/view.php')+'?id='+url.searchParams.get('id');
+    }catch{return null;}
+  }
+  function timestamps(value) {
+    const result=[];
+    const pattern=/(\d{4})(?:[-/.]|년\s*)(\d{1,2})(?:[-/.]|월\s*)(\d{1,2})(?:일)?(?:\s*\([^)]{1,4}\))?[ T]+(?:(오전|오후)\s*)?(\d{1,2}):(\d{2})(?::(\d{2}))?/g;
+    for(const match of clean(value).matchAll(pattern)){
+      const year=+match[1],month=+match[2],day=+match[3],minute=+match[6],second=+(match[7]||0);
+      let hour=+match[5];if(match[4]&&hour>12)continue;
+      if(match[4]==='오후'&&hour<12)hour+=12;if(match[4]==='오전'&&hour===12)hour=0;
+      if(year<2000||year>2100||month<1||month>12||day<1||hour>23||minute>59||second>59)continue;
+      const local=new Date(Date.UTC(year,month-1,day,hour,minute,second));
+      if(local.getUTCFullYear()!==year||local.getUTCMonth()!==month-1||local.getUTCDate()!==day)continue;
+      result.push(Math.floor(local.getTime()/1000)-9*3600);
+    }
+    return result;
+  }
+  function period(value) {
+    const dates=timestamps(value);
+    return dates.length===2&&dates[0]<dates[1]?{startAt:dates[0],dueAt:dates[1],attendancePeriodKnown:true}:{};
+  }
+  function weekOf(value) {
+    const match=clean(value).match(/(?:^|\s)(\d{1,2})\s*주(?:차)?(?:\s|$|[.:])/);
+    return match?Number(match[1]):0;
+  }
+  function attendance(value) {
+    const status=clean(value);
+    if(/^(출석|출석 완료|출석 인정|출석인정|인정|attended|present|O|○|◯)$/i.test(status))return{attendanceKnown:true,attended:true,attendanceStatus:status};
+    if(/^(미출석|미수강|미완료|결석|지각|출석 미인정|미인정|absent|late|X|×|△)$/i.test(status))return{attendanceKnown:true,attended:false,attendanceStatus:status};
+    return status?{attendanceStatus:status.slice(0,200)}:{};
+  }
+  async function get(value) {
+    const url=new URL(value,origin),controller=new AbortController();
+    if(url.origin!==origin||url.username||url.password)throw Error('invalid_origin');
+    const timer=setTimeout(()=>controller.abort(),12000);
+    try{
+      const response=await fetch(url.href,{credentials:'same-origin',signal:controller.signal});
+      const final=new URL(response.url||url.href);
+      if(final.origin!==origin||/^\/login(?:[/.]|$)/.test(final.pathname))throw Error('login_required');
+      if(!response.ok)throw Error('request_failed');
+      const doc=new DOMParser().parseFromString(await response.text(),'text/html');
+      if(doc.querySelector('body.notloggedin,input[name="logintoken"],form[action*="/login/"]'))throw Error('login_required');
+      if(doc.querySelector('.errorbox,.exceptionmessage'))throw Error('unknown_layout');
+      return doc;
+    }catch(error){if(error.message==='login_required'){expired=true;send({kind:'authentication'});}throw error;}
+    finally{clearTimeout(timer);}
+  }
+  // Expand row/column spans before assigning weekly periods. A week may contain
+  // several videos; never take the next week's deadline from an adjacent row.
+  function rows(table) {
+    const grid=[];
+    for(const [index,row]of [...table.rows].entries()){
+      grid[index]??=[];let column=0;
+      for(const cell of row.cells){
+        while(grid[index][column])column++;
+        const height=Math.min(Number(cell.rowSpan)||1,100),width=Math.min(Number(cell.colSpan)||1,30);
+        for(let y=0;y<height;y++){grid[index+y]??=[];for(let x=0;x<width;x++)grid[index+y][column+x]=cell;}
+        column+=width;
+      }
+    }
+    return grid;
+  }
+  function parse(doc,course,items,weeks,indexPage=false) {
+    const main=doc.querySelector('#region-main,[role="main"],.course-content');
+    if(!main)throw Error('unknown_layout');
+    function itemFor(link){
+      const url=videoUrl(link.getAttribute('href'));if(!url)return null;
+      let item=items.get(url);
+      if(!item){
+        const name=link.cloneNode(true);name.querySelectorAll('.accesshide,.sr-only,.icon').forEach(node=>node.remove());
+        item={...course,id:Number(new URL(url).searchParams.get('id')),url,type:'lecture',title:clean(name.textContent).slice(0,200)||'동영상 강의',attendanceKnown:false,attended:false,attendancePeriodKnown:false};items.set(url,item);
+      }
+      return item;
+    }
+    for(const link of main.querySelectorAll('a[href*="/mod/vod/"],a[href*="/mod/ubvod/"]')){
+      const item=itemFor(link);if(!item)continue;
+      const activity=link.closest('li.activity,.activity,.activity-item');
+      if(!activity)continue;
+      const section=activity.closest('li.section,.section[data-section],section');
+      item.week=weekOf(section?.querySelector('.sectionname,.section-title,h3')?.textContent)||item.week||0;
+      for(const node of activity.querySelectorAll('.displayoptions,.activity-dates,.vod-period,.period')){
+        const value=clean(node.textContent);
+        if(/지각/.test(value)){const dates=timestamps(value);if(dates.length===2)item.lateDueAt=dates[1];continue;}
+        if(/열람|게시|접근|재생\s*가능|시청\s*가능/.test(value)&&!/출석|진도/.test(value)){item.availabilityText=value.slice(0,300);continue;}
+        if(node.matches('.displayoptions')||/출석|진도|학습\s*인정/.test(value))Object.assign(item,period(value));
+      }
+    }
+    for(const table of main.querySelectorAll('table')){
+      const matrix=rows(table);
+      const headerIndex=matrix.findIndex(row=>row.some(cell=>/출석\s*인정\s*기간|진도\s*체크\s*기간|학습\s*인정\s*기간/.test(clean(cell.textContent)))&&row.some(cell=>cell.tagName==='TH'));
+      const fallbackHeader=indexPage?matrix.findIndex(row=>row.some(cell=>cell.tagName==='TH')&&row.some(cell=>/기간/.test(clean(cell.textContent)))):-1;
+      const header=headerIndex>=0?headerIndex:fallbackHeader;
+      if(header<0)continue;
+      const dataStart=matrix.findIndex((row,index)=>index>header&&row.some(cell=>cell.tagName==='TD'));
+      if(dataStart<0)continue;
+      const headerRows=matrix.slice(header,dataStart);
+      const labels=Array.from({length:Math.max(...headerRows.map(row=>row.length))},(_,column)=>
+        [...new Set(headerRows.map(row=>row[column]).filter(Boolean))].map(cell=>clean(cell.textContent)).join(' '));
+      const periodIndices=labels.map((label,index)=>!/지각|열람|시청\s*가능|접근/.test(label)&&(/출석\s*인정\s*기간|진도\s*체크\s*기간|학습\s*인정\s*기간/.test(label)||indexPage&&/^(기간|학습기간)(?:\s+(시작|종료|시작일|종료일|시작 일시|종료 일시))?$/.test(label))?index:-1).filter(index=>index>=0);
+      const lateIndices=labels.map((label,index)=>/지각.*기간/.test(label)?index:-1).filter(index=>index>=0);
+      const statusIndex=labels.findIndex(label=>/^(출석|출결|출석\s*(상태|여부)|학습\s*상태)$/.test(label));
+      const progressIndex=labels.findIndex(label=>/진도율|학습\s*시간|시청\s*시간/.test(label));
+      const weekIndex=labels.findIndex(label=>/주차|주별/.test(label));
+      for(const row of matrix.slice(dataStart)){
+        const update={};
+        const cellsText=indices=>[...new Set(indices.map(index=>row[index]).filter(Boolean))].map(cell=>clean(cell.textContent)).join(' ~ ');
+        if(periodIndices.length)Object.assign(update,period(cellsText(periodIndices)));
+        if(lateIndices.length){const dates=timestamps(cellsText(lateIndices));if(dates.length===2&&dates[0]<dates[1])update.lateDueAt=dates[1];}
+        if(statusIndex>=0)Object.assign(update,attendance(row[statusIndex]?.textContent));
+        if(progressIndex>=0)update.progressText=(labels[progressIndex]+': '+clean(row[progressIndex]?.textContent)).slice(0,200);
+        const week=weekIndex>=0?weekOf(row[weekIndex]?.textContent+' 주차')||Number(clean(row[weekIndex]?.textContent).match(/^\d{1,2}$/)?.[0])||0:0;
+        const links=[...new Set(row)].flatMap(cell=>[...cell.querySelectorAll('a[href]')]).filter(link=>videoUrl(link.getAttribute('href')));
+        if(links.length){for(const link of links){const item=itemFor(link);Object.assign(item,update);if(week)item.week=week;}}
+        else if(week&&update.attendancePeriodKnown)weeks.set(week,{...(weeks.get(week)||{}),...update});
+      }
+    }
+  }
+  async function scanCourse(course) {
+    const items=new Map(),weeks=new Map();let partial=false,courseRead=false;
+    try{
+      const home=await get('/course/view.php?id='+course.courseId);parse(home,course,items,weeks);courseRead=true;
+      if(!items.size&&!home.querySelector('.course-content,.topics,.weeks'))partial=true;
+      const sections=new Set();
+      for(const link of home.querySelectorAll('.section-navigation a[href],.sectionname a[href],.section-title a[href]')){
+        try{const url=new URL(link.getAttribute('href'),origin);if(url.origin===origin&&url.pathname==='/course/view.php'&&Number(url.searchParams.get('id'))===course.courseId&&url.searchParams.has('section'))sections.add(url.href);}catch{}
+      }
+      if(sections.size>12)partial=true;
+      for(const url of [...sections].slice(0,12)){try{parse(await get(url),course,items,weeks);}catch{partial=true;}}
+      try{parse(await get('/mod/vod/index.php?id='+course.courseId),course,items,weeks,true);}catch{/* Course activity metadata can be sufficient without the module index. */}
+      const reports=[];
+      for(const link of home.querySelectorAll('a[href]')){
+        const label=clean(link.textContent);if(!/온라인\s*출석부|학습\s*진도\s*현황/.test(label))continue;
+        try{
+          const url=new URL(link.getAttribute('href'),origin);
+          if(url.origin===origin&&/^\/(report|local)\/(ubcompletion|ubonline)\/[^/]+\.php$/.test(url.pathname)&&
+            ![...url.searchParams.keys()].some(key=>/action|sesskey|token|delete|edit|submit/i.test(key))&&Number(url.searchParams.get('id')||url.searchParams.get('courseid'))===course.courseId)reports.push(url.href);
+        }catch{}
+      }
+      for(const url of [...new Set(reports)].slice(0,2)){try{parse(await get(url),course,items,weeks);}catch{partial=true;}}
+      for(const item of items.values()){
+        const week=weeks.get(item.week);if(week){
+          item.startAt=week.startAt;item.dueAt=week.dueAt;item.attendancePeriodKnown=true;
+          if(week.attendanceKnown){item.attendanceKnown=week.attendanceKnown;item.attended=week.attended;item.attendanceStatus='주차 출결: '+week.attendanceStatus;}
+          if(!item.lateDueAt&&week.lateDueAt)item.lateDueAt=week.lateDueAt;
+        }
+        send({kind:'lecture',items:[item]});
+      }
+      send({kind:'lectures_complete',courseId:course.courseId,found:true,historyLimited:partial||[...items.values()].some(item=>!item.attendancePeriodKnown)});
+    }catch{send({kind:'lectures_complete',courseId:course.courseId,found:false,error:courseRead?'동영상 출석 정보 확인 필요':'강의실 조회 실패'});}
+  }
+  window.PixelCampusScanVideoAttendance=async courses=>{
+    send({kind:'lectures_begin'});
+    let index=0;
+    await Promise.all(Array.from({length:Math.min(4,courses.length)},async()=>{
+      while(!expired&&index<courses.length){const course=courses[index++];send({kind:'lectures_course_begin',courseId:course.courseId});await scanCourse(course);}
+    }));
+    send({kind:'lectures_scan_complete',found:!expired});
+  };
+})();

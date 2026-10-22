@@ -61,9 +61,9 @@ namespace WebNotifications
 
     public sealed class CourseCubeNotice
     {
-        public int courseId, notifications, messages, pendingAssignments, unknownAssignments;
+        public int courseId, notifications, messages, pendingAssignments, unknownAssignments, pendingLectures, unknownLectures;
         public long nextDue;
-        public bool assignmentsKnown, assignmentsFailed, notificationsKnown;
+        public bool assignmentsKnown, assignmentsFailed, notificationsKnown, lecturesKnown, lecturesFailed;
         public string courseName, courseCode, nextTaskTitle;
         public readonly List<CampusScreenLayout.DeadlinePeriod> deadlines = new List<CampusScreenLayout.DeadlinePeriod>();
         public Color DeadlineColor => CampusScreenLayout.DeadlineColor(
@@ -81,14 +81,16 @@ namespace WebNotifications
         {
             get
             {
-                if (pendingAssignments + unknownAssignments > 0)
-                    return (pendingAssignments > 0 ? "미제출 과제 " + pendingAssignments : "제출 확인 필요 " + unknownAssignments) +
+                if (pendingAssignments + unknownAssignments + pendingLectures > 0)
+                    return (pendingAssignments > 0 ? "미제출 과제 " + pendingAssignments : unknownAssignments > 0 ? "제출 확인 필요 " + unknownAssignments : "동영상 출석 " + pendingLectures) +
                         (pendingAssignments > 0 && unknownAssignments > 0 ? " · 확인 필요 " + unknownAssignments : "") +
+                        (pendingAssignments + unknownAssignments > 0 && pendingLectures > 0 ? " · 동영상 " + pendingLectures : "") +
                         "\n" + (string.IsNullOrWhiteSpace(nextTaskTitle) ? "" : nextTaskTitle.Length > 18 ? nextTaskTitle.Substring(0, 18) + "…\n" : nextTaskTitle + "\n") +
-                        CampusScreenLayout.RemainingTime(nextDue) +
+                        (nextDue <= 0 && pendingLectures > 0 ? "출석 기간 확인 필요" : CampusScreenLayout.RemainingTime(nextDue)) +
                         (notifications + messages > 0 ? " · 알림 " + (notifications + messages) : "");
                 if (!assignmentsKnown) return assignmentsFailed ? "과제 확인 필요" : "과제 확인 중…";
                 if (notifications + messages > 0) return "알림 " + (notifications + messages) + "건";
+                if (!lecturesKnown) return lecturesFailed ? "동영상 출석 확인 필요" : "동영상 출석 확인 중…";
                 return notificationsKnown ? "알림 없음" : "알림 확인 중…";
             }
         }
@@ -134,9 +136,9 @@ namespace WebNotifications
             foreach (var key in removed) { Release(courses[key].cube); Release(courses[key].material); courses.Remove(key); }
             ordered.Clear(); ordered.AddRange(courses.Values);
             ordered.Sort((a, b) => {
-                int taskOrder = (b.data.pendingAssignments + b.data.unknownAssignments > 0).CompareTo(a.data.pendingAssignments + a.data.unknownAssignments > 0);
+                int taskOrder = (b.data.pendingAssignments + b.data.unknownAssignments + b.data.pendingLectures > 0).CompareTo(a.data.pendingAssignments + a.data.unknownAssignments + a.data.pendingLectures > 0);
                 if (taskOrder != 0) return taskOrder;
-                if (a.data.pendingAssignments + a.data.unknownAssignments > 0)
+                if (a.data.pendingAssignments + a.data.unknownAssignments + a.data.pendingLectures > 0)
                 {
                     int deadline = CampusScreenLayout.CompareDeadlines(a.data.nextDue, b.data.nextDue);
                     if (deadline != 0) return deadline;
@@ -218,7 +220,7 @@ namespace WebNotifications
             label.fontSize = Mathf.RoundToInt(10 * scale);
             var viewport = mapCamera.pixelRect;
             float top = Screen.height - viewport.yMax;
-            GUI.Label(new Rect(viewport.x, top + 4 * scale, viewport.width, HeaderHeight), "전체 " + ordered.Count + "과목 · 미제출 과제 우선", label);
+            GUI.Label(new Rect(viewport.x, top + 4 * scale, viewport.width, HeaderHeight), "전체 " + ordered.Count + "과목 · 과제·동영상 마감 우선", label);
             var area = new Rect(viewport.x, top + HeaderHeight, viewport.width, Mathf.Max(1, viewport.height - HeaderHeight));
             bool movementPointer = PixelPlayerMovement.BlocksCampusPointer(Event.current.mousePosition);
             scroll = GUI.BeginScrollView(area, scroll, new Rect(0, 0, columns * cellWidth, Mathf.Max(area.height, contentHeight)));

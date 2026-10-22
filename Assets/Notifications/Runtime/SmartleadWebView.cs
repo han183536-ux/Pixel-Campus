@@ -9,7 +9,7 @@ namespace WebNotifications
     public class SmartleadWebView : MonoBehaviour
     {
         [Serializable] private class Attachment { public string name, url; }
-        [Serializable] private class Notice { public int id, courseId; public long dueAt, createdAt, startAt, modifiedAt; public string sender, title, body, url, courseName, courseCode, type, submissionStatus, gradingStatus, submissionText; public bool read, readKnown, submitted, submissionKnown, detailLoaded, submissionFilesKnown, detailTruncated; public Attachment[] submittedFiles, instructionFiles, instructionImages; }
+        [Serializable] private class Notice { public int id, courseId, week; public long dueAt, createdAt, startAt, modifiedAt, lateDueAt; public string sender, title, body, url, courseName, courseCode, type, submissionStatus, gradingStatus, submissionText, attendanceStatus, progressText, availabilityText; public bool read, readKnown, submitted, submissionKnown, detailLoaded, submissionFilesKnown, detailTruncated, attendanceKnown, attended, attendancePeriodKnown, attendanceStale; public Attachment[] submittedFiles, instructionFiles, instructionImages; }
         [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered; public Notice[] items; }
         private const string RememberIdKey = "smartlead.remember-id";
         private const string SavedIdKey = "smartlead.saved-id";
@@ -62,6 +62,13 @@ namespace WebNotifications
         private readonly List<Notice> messageDetails = new List<Notice>();
         private readonly List<Notice> assignmentDetails = new List<Notice>();
         private readonly List<Notice> scheduleDetails = new List<Notice>();
+        private readonly List<Notice> lectureDetails = new List<Notice>();
+        private readonly Dictionary<int, List<Notice>> lectureUpdates = new Dictionary<int, List<Notice>>();
+        private readonly HashSet<int> lecturesConfirmed = new HashSet<int>(), lecturesFailed = new HashSet<int>();
+        private string lectureStatus = "동영상 출석 일정 확인 중…";
+        private float lectureDeadline;
+        private bool lecturePageVisible, showCompletedLectures;
+        public bool IsLecturePageVisible => lecturePageVisible;
         private readonly List<Notice> incomingSchedules = new List<Notice>();
         private readonly Dictionary<int, Notice> enrolledCourses = new Dictionary<int, Notice>();
         private readonly Dictionary<int, Notice> incomingCourses = new Dictionary<int, Notice>();
@@ -104,6 +111,9 @@ namespace WebNotifications
             var asset = Resources.Load<TextAsset>("SmartleadCapture");
             if (asset == null) { Status = "알림 확인 스크립트가 없습니다."; return; }
             script = asset.text;
+            var lectures = Resources.Load<TextAsset>("SmartleadVideoAttendance");
+            if (lectures != null) script += "\n" + lectures.text;
+            else lectureStatus = "동영상 출석 수집 파일을 불러오지 못했습니다.";
             var coursework = Resources.Load<TextAsset>("SmartleadCoursework");
             if (coursework != null) script += "\n" + coursework.text;
             else { courseworkFailed = true; courseworkStatus = "과제 수집 파일을 불러오지 못했습니다."; }
@@ -115,6 +125,7 @@ namespace WebNotifications
                     httpErr: _ => { Status = "SmartLEAD 페이지 오류"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면에서 오류가 발생했습니다. 학교 화면의 안내를 확인해 주세요."; },
                     started: url => { currentUrl = url; nonce = null; HasResult = false; HasMessagesResult = false;
                         if (assignmentSubmissionVisible) { submissionConversionPrepared = false; submissionConversion?.Dispose(); return; }
+                        if (lecturePageVisible) return;
                         if (SchoolPage(url) && new Uri(url).AbsolutePath.Equals("/login/logout.php", StringComparison.OrdinalIgnoreCase))
                         {
                             RequireFreshLogin();
@@ -170,6 +181,7 @@ namespace WebNotifications
         {
             if (signingOut) return;
             if (assignmentVisible) { CloseAssignmentDetail(); return; }
+            if (lecturePageVisible) { CloseSchoolPage(); return; }
             var detail = GetComponent<NotificationDetailUI>();
             if (detail != null && detail.IsNotificationPanelOpen) { detail.CloseNotifications(); return; }
             if (view != null && authenticationVisible)
@@ -177,7 +189,7 @@ namespace WebNotifications
                 // The Android IME normally consumes its own Back event. Do not
                 // navigate away from an input if an Escape also reaches Unity.
                 if (view.IsKeyboardVisible) return;
-                if (IsAuthenticated) { HideAccountPage(); return; }
+                if (IsAuthenticated) { CloseSchoolPage(); return; }
                 if (view.CanGoBack()) { view.GoBack(); return; }
             }
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -204,6 +216,8 @@ namespace WebNotifications
 
         private void Inject()
         {
+            // Keep the school's player and tracking scripts intact while studying.
+            if (lecturePageVisible) return;
             // Keep the live school file picker, scripts, session and save forms intact.
             // Collectors must not navigate or replace a submission in progress.
             if (assignmentSubmissionVisible)
@@ -276,6 +290,9 @@ namespace WebNotifications
             incomingSchedules.Clear();
             courseworkDeadline = Time.unscaledTime + 45;
             courseworkFinished = false;
+            lectureDeadline = Time.unscaledTime + 90;
+            lectureUpdates.Clear(); lecturesConfirmed.Clear(); lecturesFailed.Clear();
+            lectureStatus = "동영상 출석 일정 확인 중…";
             view.EvaluateJS(script.Replace("__UNITY_NONCE__", nonce));
         }
 
@@ -291,6 +308,7 @@ namespace WebNotifications
             if (Input.GetKeyDown(KeyCode.Escape)) { HandleMobileBack(); return; }
 #endif
             if (view == null) return;
+            if (lecturePageVisible) { ApplyWebViewMargins(); return; }
             if (assignmentVisible)
             {
                 if (assignmentSubmissionVisible) submissionConversion?.Poll(view.EvaluateJS);
@@ -342,6 +360,14 @@ namespace WebNotifications
                 courseworkStatus = "과제 조회가 지연되고 있습니다. 다시 확인하거나 학교 일정을 열어 주세요.";
                 SyncCourseOverview();
             }
+            if (lectureDeadline > 0 && Time.unscaledTime >= lectureDeadline)
+            {
+                lectureDeadline = 0;
+                lectureStatus = "동영상 출석 조회가 지연되고 있습니다. 다시 확인해 주세요.";
+                foreach (var id in enrolledCourses.Keys) if (!lecturesConfirmed.Contains(id)) lecturesFailed.Add(id);
+                foreach (var item in lectureDetails) if (!lecturesConfirmed.Contains(item.courseId)) item.attendanceStale = true;
+                SyncCourseOverview();
+            }
             if (authenticationVisible)
             {
                 ApplyWebViewMargins();
@@ -379,6 +405,7 @@ namespace WebNotifications
         public void Logout()
         {
             if (signingOut) return;
+            lecturePageVisible = false;
             DismissAssignmentDetail();
             RequireFreshLogin();
             ForgetSavedLogin();
@@ -472,11 +499,22 @@ namespace WebNotifications
                 Mathf.RoundToInt(Screen.width - area.xMax), Mathf.RoundToInt(Screen.height - area.yMax));
         }
 
-        public void CloseSchoolPage() { HideAccountPage(); }
+        public void CloseSchoolPage()
+        {
+            if (lecturePageVisible)
+            {
+                lecturePageVisible = false; resumeRefreshPending = false;
+                // Navigate away only after the user leaves, so the school player
+                // can flush its normal playback record during unload.
+                HideAccountPage(); view?.LoadURL(NotificationPage);
+                return;
+            }
+            HideAccountPage();
+        }
 
         public void Refresh()
         {
-            if (signingOut || assignmentSubmissionVisible) return;
+            if (signingOut || assignmentSubmissionVisible || lecturePageVisible) return;
             if (view == null) return;
             if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
             {
@@ -692,6 +730,8 @@ namespace WebNotifications
             DismissAssignmentDetail();
             assignmentDetails.Clear(); enrolledCourses.Clear(); assignmentsConfirmed.Clear(); assignmentsFailed.Clear();
             scheduleDetails.Clear(); incomingSchedules.Clear(); courseworkFailed = false; scheduleAvailable = false; courseworkFinished = false; courseworkDeadline = 0;
+            lectureDetails.Clear(); lectureUpdates.Clear(); lecturesConfirmed.Clear(); lecturesFailed.Clear();
+            lectureDeadline = 0; lectureStatus = "동영상 출석 일정 확인 중…";
             assignmentUpdates.Clear(); receivedCourses.Clear(); incomingCourses.Clear(); currentRosterKnown = false;
             notificationsConfirmed = false; rosterPartial = false;
             courseworkStatus = "과목 · 과제 확인 중…";
@@ -701,6 +741,49 @@ namespace WebNotifications
         {
             switch (data.kind)
             {
+                case "lectures_begin":
+                    lectureDeadline = Time.unscaledTime + 90;
+                    lectureStatus = "동영상 출석 일정 확인 중…";
+                    break;
+                case "lectures_course_begin":
+                    lectureUpdates[data.courseId] = new List<Notice>();
+                    break;
+                case "lecture":
+                    if (data.items != null) foreach (var item in data.items)
+                        if (item != null && IsLectureUrl(item.url) && lectureUpdates.TryGetValue(item.courseId, out var pendingLectures))
+                        {
+                            if (item.startAt <= 0 || item.dueAt <= item.startAt || item.dueAt > 253402300799L) { item.startAt = item.dueAt = 0; item.attendancePeriodKnown = false; }
+                            if (item.lateDueAt <= item.dueAt || item.lateDueAt > 253402300799L) item.lateDueAt = 0;
+                            pendingLectures.Add(item);
+                        }
+                    break;
+                case "lectures_complete":
+                    foreach (var previous in lectureDetails) if (previous.courseId == data.courseId) previous.attendanceStale = true;
+                    bool snapshotReceived = lectureUpdates.TryGetValue(data.courseId, out var lectureSnapshot);
+                    if (data.found && snapshotReceived)
+                    {
+                        if (!data.historyLimited) lectureDetails.RemoveAll(item => item.courseId == data.courseId);
+                        foreach (var item in lectureSnapshot)
+                        {
+                            lectureDetails.RemoveAll(previous => SameActivity(previous.url, item.url));
+                            lectureDetails.Add(item);
+                        }
+                        lectureUpdates.Remove(data.courseId);
+                    }
+                    if (data.found && snapshotReceived && !data.historyLimited) { lecturesConfirmed.Add(data.courseId); lecturesFailed.Remove(data.courseId); }
+                    else { lecturesConfirmed.Remove(data.courseId); lecturesFailed.Add(data.courseId); }
+                    lectureStatus = "동영상 확인 " + lecturesConfirmed.Count + "/" + enrolledCourses.Count + "과목" +
+                        (lecturesFailed.Count > 0 ? " · 일부 출석 기간 확인 필요" : "");
+                    break;
+                case "lectures_scan_complete":
+                    lectureDeadline = 0;
+                    if (!data.found)
+                    {
+                        lectureStatus = "동영상 출석 일정 조회 실패 · 학교에서 확인해 주세요.";
+                        foreach (var id in enrolledCourses.Keys) if (!lecturesConfirmed.Contains(id)) lecturesFailed.Add(id);
+                        foreach (var item in lectureDetails) if (!lecturesConfirmed.Contains(item.courseId)) item.attendanceStale = true;
+                    }
+                    break;
                 case "schedule":
                     if (data.items != null) foreach (var item in data.items)
                         if (item != null && item.dueAt > 0 && SchoolPage(item.url))
@@ -732,7 +815,7 @@ namespace WebNotifications
                     // Retaining missing records here used to keep old semesters forever.
                     var removed = new List<int>();
                     foreach (var id in enrolledCourses.Keys) if (!receivedCourses.Contains(id)) removed.Add(id);
-                    foreach (var id in removed) { enrolledCourses.Remove(id); assignmentDetails.RemoveAll(item => item.courseId == id); assignmentsConfirmed.Remove(id); assignmentsFailed.Remove(id); }
+                    foreach (var id in removed) { enrolledCourses.Remove(id); assignmentDetails.RemoveAll(item => item.courseId == id); assignmentsConfirmed.Remove(id); assignmentsFailed.Remove(id); lectureDetails.RemoveAll(item => item.courseId == id); lecturesConfirmed.Remove(id); lecturesFailed.Remove(id); }
                     foreach (var course in incomingCourses) enrolledCourses[course.Key] = course.Value;
                     currentRosterKnown = true;
                     courseworkStatus = rosterPartial ? "일부 과목만 확인됨 · 전체 목록 확인 필요" : "수강 " + enrolledCourses.Count + "과목 · 과제 확인 중…";
@@ -802,6 +885,21 @@ namespace WebNotifications
             return result;
         }
 
+        private List<Notice> PendingLectures()
+        {
+            var items = lectureDetails.FindAll(item => IsCurrentCourse(item) && (item.attendanceStale || !item.attendanceKnown || !item.attended));
+            items.Sort((a, b) => CompareDeadlines(a.dueAt, b.dueAt));
+            return items;
+        }
+
+        private static bool IsLectureUrl(string value)
+        {
+            if (!SchoolPage(value)) return false;
+            var path = new Uri(value).AbsolutePath;
+            return (path == "/mod/vod/view.php" || path == "/mod/vod/viewer.php" || path == "/mod/ubvod/view.php" || path == "/mod/ubvod/viewer.php") &&
+                System.Text.RegularExpressions.Regex.IsMatch(new Uri(value).Query, @"^\?id=[1-9]\d*$");
+        }
+
         private string NoticeCourseKey(Notice item)
         {
             if (item.courseId > 0 && enrolledCourses.TryGetValue(item.courseId, out var course))
@@ -859,6 +957,16 @@ namespace WebNotifications
                 if (entry.nextTaskTitle == null || CompareDeadlines(item.dueAt, entry.nextDue) < 0)
                 { entry.nextDue = item.dueAt; entry.nextTaskTitle = item.title; }
             }
+            foreach (var item in PendingLectures())
+            {
+                var entry = AddOverview(overview, item);
+                if (entry == null) continue;
+                entry.pendingLectures++;
+                if (!item.attendanceKnown || item.attendanceStale) entry.unknownLectures++;
+                if (item.attendancePeriodKnown) entry.deadlines.Add(new CampusScreenLayout.DeadlinePeriod { startAt = item.startAt, dueAt = item.dueAt });
+                if (entry.nextTaskTitle == null || CompareDeadlines(item.dueAt, entry.nextDue) < 0)
+                { entry.nextDue = item.dueAt; entry.nextTaskTitle = "동영상 · " + item.title; }
+            }
             courseCubes.SetOverview(overview.Values);
         }
 
@@ -876,7 +984,8 @@ namespace WebNotifications
                 result = new CourseCubeNotice { courseId = identity.courseId, courseName = identity.courseName,
                     courseCode = identity.courseCode, assignmentsKnown = assignmentsConfirmed.Contains(identity.courseId),
                     assignmentsFailed = assignmentsFailed.Contains(identity.courseId) || (courseworkFailed || courseworkFinished) && !assignmentsConfirmed.Contains(identity.courseId),
-                    notificationsKnown = notificationsConfirmed };
+                    notificationsKnown = notificationsConfirmed,
+                    lecturesKnown = lecturesConfirmed.Contains(identity.courseId), lecturesFailed = lecturesFailed.Contains(identity.courseId) };
                 overview.Add(key, result);
             }
             return result;
@@ -906,7 +1015,7 @@ namespace WebNotifications
                 messageDetails.Find(item => NoticeCourseKey(item) == key);
         }
 
-        public float AgendaHeight => (PendingAssignments().Count * 68 + 135) * CampusScreenLayout.Scale;
+        public float AgendaHeight => (PendingAssignments().Count * 68 + PendingLectures().Count * 104 + 235) * CampusScreenLayout.Scale;
 
         private CampusScreenLayout.DeadlinePeriod NoticeDeadline(Notice item)
         {
@@ -922,6 +1031,9 @@ namespace WebNotifications
                 var periods = new List<CampusScreenLayout.DeadlinePeriod>();
                 foreach (var item in PendingAssignments())
                     if (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey)
+                        periods.Add(new CampusScreenLayout.DeadlinePeriod { startAt = item.startAt, dueAt = item.dueAt });
+                foreach (var item in PendingLectures())
+                    if (item.attendancePeriodKnown && (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey))
                         periods.Add(new CampusScreenLayout.DeadlinePeriod { startAt = item.startAt, dueAt = item.dueAt });
                 return CampusScreenLayout.DeadlineColor(CampusScreenLayout.CourseStage(periods, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             }
@@ -963,6 +1075,25 @@ namespace WebNotifications
             bool emptyConfirmed = enrolledCourses.Count > 0 && assignmentsConfirmed.Count == enrolledCourses.Count && !rosterPartial;
             GUILayout.Label(networkWasUnavailable ? Status : tasks.Count == 0 ? emptyConfirmed ? "남은 과제 없음" : courseworkStatus : "마감이 가까운 과제부터 표시합니다. 제출 상태 미확인 일정은 학교에서 확인해 주세요.",
                 agendaLabel, GUILayout.Height(54 * scale));
+            var lectures = PendingLectures();
+            GUILayout.Label("동영상 출석 일정 · " + lectures.Count + "건", agendaLabel, GUILayout.Height(24 * scale));
+            foreach (var item in lectures)
+            {
+                var title = item.title ?? "동영상 강의";
+                if (title.Length > 54) title = title.Substring(0, 54) + "…";
+                var caption = CourseLabel(item) + title + "\n" + LecturePeriod(item) + "\n" + LectureRemaining(item) +
+                    "\n" + LectureAttendanceLabel(item);
+                var background = GUI.backgroundColor;
+                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+                bool clicked = GUILayout.Button(caption, agendaButton, GUILayout.Height(100 * scale));
+                GUI.backgroundColor = background;
+                if (clicked)
+                {
+                    GetComponent<NotificationDetailUI>()?.OpenCourseNotifications(NoticeCourseKey(item), item.courseName);
+                    selectedNotice = item;
+                }
+            }
+            GUILayout.Label(networkWasUnavailable ? Status : lectureStatus + (rosterPartial ? " · 전체 과목 확인 필요" : ""), agendaLabel, GUILayout.Height(48 * scale));
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("일정 다시 확인", GUILayout.Height(34 * scale))) Refresh();
             if (GUILayout.Button("학교 일정 보기", GUILayout.Height(34 * scale)))
@@ -985,11 +1116,64 @@ namespace WebNotifications
             view.LoadURL(item.url);
         }
 
+        private static string LectureRemaining(Notice item) => LectureAttendancePeriod.Status(item.startAt, item.dueAt, item.lateDueAt,
+            item.attendancePeriodKnown, item.attendanceKnown && !item.attendanceStale, item.attended, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        private static string LectureAttendanceLabel(Notice item) => item.attendanceStale ? "이전 조회 정보 · 출석 다시 확인 필요" :
+            item.attendanceKnown ? "학교 출결: " + item.attendanceStatus : "출석 상태 확인 필요" +
+            (string.IsNullOrWhiteSpace(item.attendanceStatus) ? "" : " · " + item.attendanceStatus);
+
+        private static string LectureTime(long value) => value > 0 && value <= 253402300799L ?
+            DateTimeOffset.FromUnixTimeSeconds(value).ToOffset(TimeSpan.FromHours(9)).ToString("MM/dd HH:mm") : "미확인";
+
+        private static string LecturePeriod(Notice item) => item.attendancePeriodKnown ?
+            "출석 인정: " + LectureTime(item.startAt) + " ~ " + LectureTime(item.dueAt) + " (한국 시간)" : "출석 인정 기간 확인 필요";
+
+        private void OpenLecture(Notice item)
+        {
+            if (view == null || !IsLectureUrl(item.url)) return;
+            lecturePageVisible = true;
+            accountPagePinned = true; nonce = null;
+            ShowAuthentication();
+            view.LoadURL(item.url);
+        }
+
+        private void DrawLectureList(GUIStyle label, ref int count)
+        {
+            GUILayout.Label("동영상 출석 일정", label);
+            GUILayout.Label(lectureStatus, label);
+            showCompletedLectures = GUILayout.Toggle(showCompletedLectures, "출석 확인된 동영상도 보기", touchButton);
+            var items = lectureDetails.FindAll(item => IsCurrentCourse(item) &&
+                (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey) &&
+                (showCompletedLectures || item.attendanceStale || !item.attendanceKnown || !item.attended));
+            items.Sort((a, b) => CompareDeadlines(a.dueAt, b.dueAt));
+            foreach (var item in items)
+            {
+                count++;
+                var previous = GUI.backgroundColor;
+                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+                if (GUILayout.Button("동영상 · " + item.title + "\n" + LectureRemaining(item) + "\n" + LectureAttendanceLabel(item), touchButton))
+                    selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
+                GUI.backgroundColor = previous;
+                if (!ReferenceEquals(selectedNotice, item)) continue;
+                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.Label(CourseLabel(item) + (item.week > 0 ? item.week + "주차" : ""), label);
+                GUILayout.Label(LecturePeriod(item), label);
+                if (item.lateDueAt > 0) GUILayout.Label("지각 인정 종료: " + LectureTime(item.lateDueAt) + " (한국 시간)", label);
+                GUILayout.Label(LectureAttendanceLabel(item), label);
+                if (!string.IsNullOrWhiteSpace(item.progressText)) GUILayout.Label(item.progressText, label);
+                if (!string.IsNullOrWhiteSpace(item.availabilityText)) GUILayout.Label(item.availabilityText, label);
+                GUILayout.Label("학교 플레이어에서 시청한 뒤 학교의 출석 상태를 확인하세요.", label);
+                if (GUILayout.Button("강의 보기", touchButton)) OpenLecture(item);
+                GUILayout.EndVertical();
+            }
+        }
+
         private void DrawNotices(GUIStyle label)
         {
             if (!string.IsNullOrEmpty(selectedCourseKey))
             {
-                GUILayout.Label(selectedCourseTitle + " · 과제 / 알림", label);
+                GUILayout.Label(selectedCourseTitle + " · 과제 / 동영상 / 알림", label);
                 DrawClassroom(label);
                 if (GUILayout.Button("전체 알림 보기", touchButton)) SelectCourse(null, null);
             }
@@ -998,6 +1182,7 @@ namespace WebNotifications
             DrawNoticeList(PendingAssignments(), "과제", label, ref count);
             if (showSubmittedAssignments)
                 DrawNoticeList(assignmentDetails.FindAll(item => item.submissionKnown && item.submitted && IsCurrentCourse(item)), "제출 완료 과제", label, ref count);
+            DrawLectureList(label, ref count);
             DrawNoticeList(notificationDetails, "알림", label, ref count);
             DrawNoticeList(messageDetails, "쪽지", label, ref count);
             if (count == 0)
@@ -1005,8 +1190,8 @@ namespace WebNotifications
                 bool assignmentsKnown = enrolledCourses.Count > 0;
                 foreach (var course in enrolledCourses.Values)
                     if ((string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(course) == selectedCourseKey) &&
-                        !assignmentsConfirmed.Contains(course.courseId)) assignmentsKnown = false;
-                GUILayout.Label(assignmentsKnown && notificationsConfirmed ? "알림 없음" : "알림 · 과제 확인 중이거나 조회가 필요합니다.", label);
+                        (!assignmentsConfirmed.Contains(course.courseId) || !lecturesConfirmed.Contains(course.courseId))) assignmentsKnown = false;
+                GUILayout.Label(assignmentsKnown && notificationsConfirmed ? "남은 일정·알림 없음" : "알림·과제·동영상 확인 중이거나 조회가 필요합니다.", label);
             }
         }
 

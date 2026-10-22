@@ -13,7 +13,7 @@ const statusDoc = (status, due = '', extension = '') => ({
     ['제출 상태', status], ['마감일', due], ['연장 기한', extension]
   ].map(pair => ({querySelectorAll: () => pair.map(cell)})) : []
 });
-async function capture({api, pages = {}, loggedIn = true, stallBody = false, bridge = 'windows', detail} = {}) {
+async function capture({api, pages = {}, loggedIn = true, stallBody = false, bridge = 'windows', detail, scanVideos} = {}) {
   const events = [], requests = [];
   const context = {
     location: {origin, href: origin + '/local/ubion/user/index.php'},
@@ -39,6 +39,7 @@ async function capture({api, pages = {}, loggedIn = true, stallBody = false, bri
       return {ok: !!page, url: url.href, text: async () => key};
     }
   };
+  if (scanVideos) context.window.PixelCampusScanVideoAttendance = scanVideos;
   if (bridge === 'android' || bridge === 'both') context.window.Unity = {call: value => events.push(JSON.parse(value))};
   if (bridge === 'android' || bridge === 'missing') delete context.window.chrome;
   runInNewContext(script, context);
@@ -49,6 +50,20 @@ async function capture({api, pages = {}, loggedIn = true, stallBody = false, bri
 }
 const roster = [{id: 7, fullname: '프로그래밍 (123456-01)'}, {id: 8, fullname: '그래픽스'}];
 const assignment = (id, cmid, name = '과제') => ({id, cmid, name, duedate: 1800000000, intro: '<p>과제 설명</p>'});
+
+test('video attendance scans the current roster independently and cannot block assignment collection', async () => {
+  const scanned = [];
+  const {events} = await capture({api: ({methodname}) => {
+    if (methodname.includes('timeline')) return {courses: [roster[0]], nextoffset: 0};
+    if (methodname === 'mod_assign_get_assignments') return {courses: [{id: 7, assignments: [assignment(11, 91)]}]};
+    if (methodname === 'mod_assign_get_submission_status') return {lastattempt: {submission: {status: 'new'}}};
+    return {events: []};
+  }, scanVideos: async courses => { scanned.push(...courses); throw Error('video report unavailable'); }});
+  assert.equal(scanned.length, 1); assert.equal(scanned[0].courseId, 7);
+  assert.ok(events.some(event => event.kind === 'assignment'));
+  assert.ok(events.some(event => event.kind === 'lectures_scan_complete' && !event.found));
+  assert.ok(events.some(event => event.kind === 'coursework_complete'));
+});
 
 test('Android bridge streams courses, assignments and deadlines with the same protocol and only one delivery', async () => {
   const api = ({methodname}) => {
