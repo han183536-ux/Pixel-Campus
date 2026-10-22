@@ -16,6 +16,8 @@ $includeFile = Join-Path $testRoot 'UniversityInclude.targets'
 <Compile Include="$(MSBuildProjectDirectory)\Assets\Notifications\Runtime\UniversityNoticeFeed.cs" />
 <Compile Remove="Assets\Notifications\Runtime\UniversityNoticeDeadline.cs" />
 <Compile Include="$(MSBuildProjectDirectory)\Assets\Notifications\Runtime\UniversityNoticeDeadline.cs" />
+<Compile Remove="Assets\Notifications\Runtime\NotificationRequestScope.cs;$(MSBuildProjectDirectory)\Assets\Notifications\Runtime\NotificationRequestScope.cs" />
+<Compile Include="$(MSBuildProjectDirectory)\Assets\Notifications\Runtime\NotificationRequestScope.cs" />
 </ItemGroup></Project>
 '@ | Set-Content -LiteralPath $includeFile
 & dotnet build $projectFile --verbosity quiet --ignore-failed-sources -p:WarningLevel=0 "-p:CustomAfterMicrosoftCommonTargets=$includeFile"

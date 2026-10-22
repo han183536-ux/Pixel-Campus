@@ -246,6 +246,13 @@ namespace Gree.UnityWebView
         /// Called from Java native plugin to request permissions for the file chooser.
         public void RequestFileChooserPermissions()
         {
+            // ACTION_GET_CONTENT grants access to the user-selected documents.
+            // Ordinary assignment uploads need no library-wide storage permission.
+            if (!mAllowVideoCapture && !mAllowAudioCapture)
+            {
+                StartCoroutine(CallOnRequestFileChooserPermissionsResult(true));
+                return;
+            }
             var permissions = new List<string>();
             using (var version = new AndroidJavaClass("android.os.Build$VERSION"))
             {

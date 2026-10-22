@@ -179,7 +179,21 @@ namespace WebNotifications
                 GUILayout.EndArea();
                 return;
             }
-            if (GUI.Button(new Rect(right - 2 * buttonWidth - 6 * scale, buttonY, buttonWidth, buttonHeight), "학교 공지", appButton))
+            if (school.IsAssignmentDetailVisible)
+            {
+                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - 2 * buttonWidth - 4 * padding, 28 * scale), school.AssignmentDetailTitle, appTitle);
+                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - 2 * buttonWidth - 4 * padding, 24 * scale), school.IsAssignmentSubmissionVisible ? "파일 선택 후 학교 화면에서 저장하세요." : "픽셀 캠퍼스 · 과제 상세", caption);
+                if (!school.IsAssignmentSubmissionVisible && GUI.Button(new Rect(right - 2 * buttonWidth - 6 * scale, buttonY, buttonWidth, buttonHeight), "새로고침", appButton)) school.RefreshAssignmentDetail();
+                if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "뒤로", appButton)) school.CloseAssignmentDetail();
+                if (!string.IsNullOrEmpty(school.AssignmentRenderStatus))
+                {
+                    var content = CampusScreenLayout.ContentArea;
+                    GUI.Label(new Rect(content.x + padding, content.y + 20 * scale, content.width - 2 * padding, 110 * scale), school.AssignmentRenderStatus, wrapped);
+                }
+                return;
+            }
+            float noticeButtonX = campus ? right - 3 * buttonWidth - 12 * scale : right - 2 * buttonWidth - 6 * scale;
+            if (GUI.Button(new Rect(noticeButtonX, buttonY, buttonWidth, buttonHeight), "학교 공지", appButton))
             {
                 CloseNotifications(); showUniversityNotices = true; scroll = Vector2.zero;
                 school.SetWebsiteNoticesVisible(true);
@@ -199,11 +213,17 @@ namespace WebNotifications
                 GUI.Label(new Rect(safe.x + padding, safe.y + CampusScreenLayout.HeaderHeight + 20 * scale, safe.width - 2 * padding, 90 * scale), school.Status, wrapped);
                 return;
             }
-            GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - buttonWidth - 3 * padding, CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
-            if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "계정", appButton))
+            GUI.Label(new Rect(safe.x + padding, safe.y, Mathf.Max(1, noticeButtonX - safe.x - 2 * padding), CampusScreenLayout.HeaderHeight), "PIXEL CAMPUS", appTitle);
+            if (GUI.Button(new Rect(right - 2 * buttonWidth - 6 * scale, buttonY, buttonWidth, buttonHeight), "계정", appButton))
             {
                 CloseNotifications();
                 school.OpenAccountPage();
+            }
+            if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "로그아웃", appButton))
+            {
+                CloseNotifications();
+                school.Logout();
+                return;
             }
             if (!showNotifications) return;
             var panel = NotificationPanelRect;

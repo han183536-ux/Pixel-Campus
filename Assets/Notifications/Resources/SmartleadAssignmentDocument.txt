@@ -1,0 +1,134 @@
+(async () => {
+  if (location.origin !== 'https://smartlead.hallym.ac.kr') return;
+  const request = __ASSIGNMENT_REQUEST__;
+  const nonce = '__UNITY_NONCE__', page = location.href;
+  const send = data => {
+    const packet = JSON.stringify({...data, nonce, page, requestId: request.requestId});
+    if (typeof window.Unity?.call === 'function') window.Unity.call(packet);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(packet);
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const url = new URL(request.item.url, location.href);
+    if (url.origin !== location.origin || url.username || url.password || !/^\/mod\/(assign|ubassign)\/view\.php$/.test(url.pathname)) throw Error('invalid_assignment');
+    const response = await fetch(url.href, {credentials: 'same-origin', signal: controller.signal});
+    const final = new URL(response.url || url.href);
+    if (final.origin !== location.origin || /^\/login(?:[/.]|$)/.test(final.pathname)) throw Error('login_required');
+    if (!response.ok) throw Error('request_failed');
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    if (doc.querySelector('body.notloggedin, input[name="logintoken"], form[action*="/login/"]')) throw Error('login_required');
+    const root = doc.querySelector('#region-main') || doc.querySelector('[role="main"]');
+    if (!root || !root.querySelector('#intro, .submissionstatustable, .submissionstatus')) throw Error('unknown_assignment_layout');
+    const content = root.cloneNode(true);
+    // Keep the school's assignment content and table markup. Do not import its navigation,
+    // executable code, account data, or controls that could submit/change a school record.
+    content.querySelectorAll('script, style, link, meta, base, iframe, object, embed, form, input, button, select, textarea, nav, header, footer, .activity-navigation, .completion-info, .activity-header, .tertiary-navigation, .singlebutton, .nav-tabs').forEach(node => node.remove());
+    // The local template supplies the assignment title. Remove only the school's
+    // matching page heading, preserving headings inside the assignment itself.
+    const normalizeTitle = value => (value || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+    const assignmentTitle = normalizeTitle(request.item.title);
+    if (assignmentTitle) {
+      content.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+        if (!heading.closest('#intro, .submissionstatus, .submissionstatustable, .introattachments') &&
+            normalizeTitle(heading.textContent) === assignmentTitle) heading.remove();
+      });
+    }
+    const mediaUrl = value => {
+      try {
+        const resource = new URL(value, final.href);
+        if (resource.origin !== location.origin || resource.username || resource.password ||
+            !/^\/(pluginfile|draftfile)\.php\//.test(resource.pathname)) return null;
+        resource.searchParams.delete('forcedownload');
+        return resource.href;
+      } catch { return null; }
+    };
+    const isVideoFile = value => {
+      try { return /\.(mp4|m4v|webm|ogv|ogg|mov)$/i.test(new URL(value, final.href).pathname); }
+      catch { return false; }
+    };
+    // Some Moodle editors store a movie as a link (or just a URL) and rely on
+    // the school's scripts to build a player. Recreate it without those scripts.
+    const walker = doc.createTreeWalker(content, 4);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    for (const node of textNodes) {
+      if (node.parentElement.closest('a, video, audio, pre, code')) continue;
+      const value = node.textContent.trim();
+      if (!/^https:\/\/\S+$/i.test(value) || !isVideoFile(value) || !mediaUrl(value)) continue;
+      const link = doc.createElement('a');
+      link.href = value; link.textContent = value;
+      node.replaceWith(link);
+    }
+    for (const link of [...content.querySelectorAll('a[href]')]) {
+      const source = mediaUrl(link.getAttribute('href'));
+      if (!source || !isVideoFile(source) || link.closest('video, audio')) continue;
+      const player = doc.createElement('video');
+      player.src = source;
+      link.before(player);
+      link.href = source;
+      link.textContent = '영상 파일 열기 · ' + (link.textContent.trim() || '동영상');
+    }
+    const allowedTags = new Set('DIV SECTION ARTICLE MAIN P SPAN B STRONG I EM U S BR HR H1 H2 H3 H4 H5 H6 UL OL LI TABLE THEAD TBODY TFOOT TR TH TD CAPTION COLGROUP COL A IMG VIDEO AUDIO SOURCE FIGURE FIGCAPTION BLOCKQUOTE PRE CODE DL DT DD SUP SUB SMALL DETAILS SUMMARY'.split(' '));
+    for (const node of [...content.querySelectorAll('*')]) {
+      if (!allowedTags.has(node.tagName)) { node.replaceWith(...node.childNodes); continue; }
+      for (const attribute of [...node.attributes]) {
+        if (!['id', 'class', 'style', 'colspan', 'rowspan', 'alt', 'title', 'href', 'src', 'width', 'height', 'open'].includes(attribute.name.toLowerCase())) node.removeAttribute(attribute.name);
+      }
+      for (const name of ['href', 'src']) {
+        const value = node.getAttribute(name);
+        if (!value) continue;
+        if (name === 'src' && ['VIDEO', 'AUDIO', 'SOURCE'].includes(node.tagName)) {
+          const source = mediaUrl(value);
+          if (source) node.setAttribute(name, source); else node.removeAttribute(name);
+          continue;
+        }
+        if (name === 'src' && /^data:image\/(png|jpeg|gif|webp|bmp);base64,/i.test(value)) continue;
+        try {
+          const resource = new URL(value, final.href);
+          if (resource.protocol !== 'https:' || resource.username || resource.password ||
+              (name === 'href' && (resource.origin !== location.origin || !/\/(pluginfile|draftfile)\.php(?:\/|$)/.test(resource.pathname)))) throw Error('unsafe_resource');
+          node.setAttribute(name, resource.href);
+        } catch { node.removeAttribute(name); }
+      }
+    }
+    for (const player of content.querySelectorAll('video, audio')) {
+      player.setAttribute('controls', '');
+      player.setAttribute('playsinline', '');
+      player.setAttribute('preload', 'none');
+      player.removeAttribute('style');
+      player.removeAttribute('width'); player.removeAttribute('height');
+      const source = player.getAttribute('src') || player.querySelector('source[src]')?.getAttribute('src');
+      if (source && !player.nextElementSibling?.matches('a[href]')) {
+        const link = doc.createElement('a');
+        link.href = source; link.textContent = '영상 파일 열기';
+        player.after(link);
+      }
+    }
+    // The renderer is a local app document. Embed protected school images using
+    // the authenticated collector so they do not depend on a second WebView's cookies.
+    const images = [...content.querySelectorAll('img[src]')];
+    let embeddedBytes = 0;
+    async function embedImage(image) {
+      try {
+        const source = new URL(image.getAttribute('src'));
+        if (source.origin !== location.origin) return;
+        const response = await fetch(source.href, {credentials: 'same-origin', signal: controller.signal});
+        if (!response.ok) return;
+        const blob = await response.blob();
+        if (!/^image\/(png|jpeg|gif|webp|bmp)$/i.test(blob.type) || blob.size > 2 * 1024 * 1024 || embeddedBytes + blob.size > 2 * 1024 * 1024) return;
+        embeddedBytes += blob.size;
+        const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
+        image.setAttribute('src', data);
+      } catch { /* Keep the original HTTPS image as a fallback. */ }
+    }
+    for (let offset = 0; offset < images.length; offset += 3) await Promise.all(images.slice(offset, offset + 3).map(embedImage));
+    const html = content.innerHTML;
+    if (!html || html.length > 4 * 1024 * 1024) throw Error('assignment_too_large');
+    const total = Math.ceil(html.length / 8000);
+    for (let index = 0; index < total; index++) send({kind: 'assignment_document', url: url.href, index, total, html: html.slice(index * 8000, (index + 1) * 8000)});
+  } catch (error) {
+    send({kind: 'assignment_document_error', error: error.message === 'login_required' ? '학교 로그인이 만료되었습니다. 계정에서 다시 로그인해 주세요.' :
+      '과제 내용을 불러오지 못했습니다. 과제 상세의 새로고침으로 다시 시도해 주세요.'});
+  } finally { clearTimeout(timer); }
+})();

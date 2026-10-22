@@ -25,7 +25,12 @@ namespace WebNotifications
             yield return GetComponent<NotificationApiClient>().CheckLoginOptions(result => { options = result; });
             busy = false;
         }
-        private void OnDisable() { password = ""; username = ""; busy = false; }
+        private void OnDisable()
+        {
+            GetComponent<NotificationApiClient>()?.CancelPendingRequests();
+            StopAllCoroutines();
+            password = ""; username = ""; busy = false;
+        }
         public void Draw(GUIStyle label)
         {
             GUILayout.Label("한림 SmartLEAD · 학교 계정", label);

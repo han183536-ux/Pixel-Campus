@@ -8,11 +8,13 @@ Local C# modification: Windows backspace forwards VK_BACK down/up without a dupl
 Android addition (2026-10-19):
 Source: https://github.com/gree/unity-webview
 Commit: 5604a7dc1beba961db00c84f0f68c979bf23092e (same revision as WebViewObject.cs)
-Upstream file: dist/package-nofragment/Assets/Plugins/Android/WebViewPlugin-release.aar.tmpl
+Upstream file: dist/package/Assets/Plugins/Android/WebViewPlugin-release.aar.tmpl
 Local file: Android/WebViewPlugin.aar (renamed, binary unchanged)
-SHA256: AB1BD6CFA143142B6D67A10F2140CE04E2C169C0E8614DF986977EB82DBFD8A0
-Variant: nofragment/release; login, browsing and JavaScript bridge only; file input is not supported.
-The AAR contains Java classes and consumer ProGuard keep rules, with no native .so files or AndroidX dependency.
+SHA256: ED56D83F103F3700DBBC1F32A426A4FE2DA7DB658CD737A8F88501A6F68FC42F
+Variant: Fragment/release; replaced nofragment on 2026-10-22 to enable file input and multiple document selection.
+The AAR contains Java classes and consumer ProGuard keep rules, with no native .so files.
+AndroidCampusSetup adds the upstream AndroidX core 1.6.0 Gradle dependency and enables AndroidX.
 Android-only PluginImporter metadata is supplied locally.
 AndroidCampusSetup.cs adds INTERNET/ACCESS_NETWORK_STATE and upstream-compatible hardware acceleration/IME settings to Unity's generated manifest.
 link.xml preserves WebViewObject callbacks used by Android UnitySendMessage.
+Local C# modification (2026-10-22): document-only file selection uses ACTION_GET_CONTENT URI grants without requesting broad storage/media permissions. Camera/microphone capture remains disabled; no FileProvider is registered because capture is not used.

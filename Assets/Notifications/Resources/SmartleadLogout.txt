@@ -1,0 +1,25 @@
+(async () => {
+  if (location.origin !== 'https://smartlead.hallym.ac.kr') return;
+  const nonce = '__UNITY_NONCE__';
+  const page = location.href;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const link = document.querySelector('a[href*="/login/logout.php"]');
+    let url = new URL('/login/logout.php', location.origin);
+    if (link) {
+      const candidate = new URL(link.getAttribute('href'), location.href);
+      if (candidate.origin === location.origin && candidate.pathname === '/login/logout.php' && !candidate.username && !candidate.password) url = candidate;
+    }
+    if (!url.searchParams.has('sesskey') && window.M?.cfg?.sesskey) url.searchParams.set('sesskey', window.M.cfg.sesskey);
+    const response = await fetch(url.href, {credentials: 'same-origin', signal: controller.signal});
+    await response.text();
+  } catch {
+    // Local cookies and saved credentials are removed even when the school is unreachable.
+  } finally {
+    clearTimeout(timer);
+    const packet = JSON.stringify({kind: 'logout_complete', nonce, page});
+    if (typeof window.Unity?.call === 'function') window.Unity.call(packet);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(packet);
+  }
+})();

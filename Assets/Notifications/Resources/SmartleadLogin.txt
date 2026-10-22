@@ -1,0 +1,87 @@
+(function () {
+  'use strict';
+  const schoolLogin = location.origin === 'https://smartlead.hallym.ac.kr' && ['/login/index.php', '/login.php'].includes(location.pathname);
+  const ssoLogin = location.origin === 'https://sso.hallym.ac.kr' && location.pathname.toLowerCase() === '/account/login';
+  if (!schoolLogin && !ssoLogin) return;
+  const settings = __LOGIN_SETTINGS__;
+  function post(data) {
+    const packet = JSON.stringify({...data, nonce: settings.nonce, page: location.href});
+    if (window.Unity && typeof window.Unity.call === 'function') window.Unity.call(packet);
+    else if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(packet);
+  }
+  const username = document.querySelector(ssoLogin ? 'input[name="UserName"]' : 'input[name="username"]');
+  const form = username && username.form;
+  if (!form) {
+    if (schoolLogin && /이미[\s\S]{0,100}로그인|already logged in/i.test(document.body?.textContent || ''))
+      post({kind: 'login_existing_session'});
+    return;
+  }
+  if (document.getElementById('pixel-campus-remember-id')) return;
+  post({kind: 'login_ready'});
+  if (settings.requirePasswordEntry) {
+    settings.password = ''; settings.automatic = false; settings.autoSubmit = false;
+    const password = form.querySelector('input[type="password"]');
+    if (password) {
+      password.value = ''; password.autocomplete = 'off';
+      password.dispatchEvent(new Event('input', {bubbles: true}));
+      password.dispatchEvent(new Event('change', {bubbles: true}));
+    }
+  }
+  function send(kind) {
+    const enteredPassword = kind === 'login_submit' ? form.querySelector('input[type="password"]')?.value || '' : '';
+    const password = automatic.checked ? enteredPassword : '';
+    post({kind,
+      remember: checkbox.checked, automatic: automatic.checked, password, passwordEntered: enteredPassword.length > 0,
+      username: kind === 'login_submit' && checkbox.checked ? username.value.trim().slice(0, 256) : ''});
+  }
+  if (settings.remember && settings.username && !username.value) {
+    username.value = settings.username;
+    username.dispatchEvent(new Event('input', {bubbles: true}));
+    username.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  const label = document.createElement('label');
+  label.style.cssText = 'display:flex!important;align-items:center;gap:8px;margin:12px 0!important;font-size:14px!important;line-height:1.6;color:#183350!important;cursor:pointer;position:relative!important;height:auto!important';
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.id = 'pixel-campus-remember-id';
+  checkbox.checked = settings.remember;
+  checkbox.style.cssText = 'appearance:auto!important;position:static!important;opacity:1!important;margin:0!important;width:18px!important;height:18px!important;flex:0 0 18px;padding:0!important';
+  label.appendChild(checkbox);
+  label.appendChild(document.createTextNode('이 기기에 ID 저장'));
+  const submit = form.querySelector('button[type="submit"], input[type="submit"]');
+  function addOption(option) {
+    if (submit?.parentNode) submit.parentNode.insertBefore(option, submit);
+    else form.appendChild(option);
+  }
+  addOption(label);
+  const autoLabel = document.createElement('label');
+  autoLabel.style.cssText = label.style.cssText;
+  const automatic = document.createElement('input');
+  automatic.type = 'checkbox'; automatic.id = 'pixel-campus-auto-login';
+  automatic.checked = !!settings.automatic; automatic.disabled = !settings.secureStorageAvailable;
+  automatic.style.cssText = checkbox.style.cssText;
+  autoLabel.appendChild(automatic);
+  autoLabel.appendChild(document.createTextNode(settings.secureStorageAvailable ? '자동 로그인 · 비밀번호를 이 기기에 안전하게 저장' : '이 환경에서는 자동 로그인 저장을 지원하지 않습니다.'));
+  addOption(autoLabel);
+  checkbox.addEventListener('change', () => {
+    if (!checkbox.checked) automatic.checked = false;
+    send('login_preferences');
+  });
+  automatic.addEventListener('change', () => {
+    if (automatic.checked) checkbox.checked = true;
+    send('login_preferences');
+  });
+  // Observe the existing submission without cancelling/replaying it. SSO owns its
+  // validation, anti-forgery token, submitter and navigation; Unity must not replace those.
+  form.addEventListener('submit', () => send('login_submit'), true);
+  if (settings.automatic && settings.password) {
+    const password = form.querySelector('input[type="password"]');
+    if (password && !password.value) {
+      password.value = settings.password;
+      settings.password = '';
+      password.dispatchEvent(new Event('input', {bubbles: true}));
+      password.dispatchEvent(new Event('change', {bubbles: true}));
+      if (settings.autoSubmit && typeof form.requestSubmit === 'function') form.requestSubmit();
+    }
+  }
+})();

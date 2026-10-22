@@ -13,7 +13,7 @@ const statusDoc = (status, due = '', extension = '') => ({
     ['제출 상태', status], ['마감일', due], ['연장 기한', extension]
   ].map(pair => ({querySelectorAll: () => pair.map(cell)})) : []
 });
-async function capture({api, pages = {}, loggedIn = true, stallBody = false, bridge = 'windows'} = {}) {
+async function capture({api, pages = {}, loggedIn = true, stallBody = false, bridge = 'windows', detail} = {}) {
   const events = [], requests = [];
   const context = {
     location: {origin, href: origin + '/local/ubion/user/index.php'},
@@ -44,6 +44,7 @@ async function capture({api, pages = {}, loggedIn = true, stallBody = false, bri
   runInNewContext(script, context);
   for (let i = 0; i < 30; i++) await new Promise(resolve => setImmediate(resolve));
   if (stallBody) await new Promise(resolve => setTimeout(resolve, 30));
+  if (detail) await context.window.PixelCampusAssignmentDetail(detail);
   return {events, requests};
 }
 const roster = [{id: 7, fullname: '프로그래밍 (123456-01)'}, {id: 8, fullname: '그래픽스'}];
@@ -66,6 +67,56 @@ test('Android bridge streams courses, assignments and deadlines with the same pr
   }
   const anonymous = await capture({api, bridge: 'android', loggedIn: false});
   assert.equal(anonymous.requests.length, 0);
+});
+
+test('selected assignment retrieves full instructions, teacher resources and only my submission files', async () => {
+  const file = (name, url) => ({textContent: name, getAttribute: key => key === 'href' || key === 'src' ? url : name});
+  const teacher = file('과제 안내.pdf', '/pluginfile.php/12/mod_assign/introattachment/guide.pdf');
+  const mine = file('student-project.zip', '/pluginfile.php/13/assignsubmission_file/submission_files/project.zip');
+  const image = file('실행 결과 예시', '/pluginfile.php/12/mod_assign/intro/example.png');
+  const intro = {textContent: '전체 과제 안내\n프로젝트와 실행 결과를 제출하세요.\n' + '상세 요구사항 '.repeat(500),
+    querySelectorAll: selector => selector.startsWith('img') ? [image] : [teacher]};
+  const fileCell = {...cell('student-project.zip'), querySelectorAll: () => [mine,
+    file('외부 파일', 'https://other.example/pluginfile.php/secret'), file('스크립트', 'javascript:alert(1)')]};
+  const rows = [
+    ['제출 여부', '제출 완료'], ['채점 상황', '채점되지 않음'], ['최종 수정 일시', '2026-10-20 17:46'],
+    ['종료 일시', '2026-11-04 13:00']
+  ].map(pair => ({querySelectorAll: () => pair.map(cell)}));
+  rows.push({querySelectorAll: () => [cell('첨부 파일'), fileCell]});
+  const page = {...emptyDoc, querySelector: selector => selector === '#intro' ? intro : null,
+    querySelectorAll: selector => selector.includes('submissionstatustable') ? rows : []};
+  const api = ({methodname}) => methodname.includes('timeline') ? {courses: [], nextoffset: 0} : {events: [], courses: []};
+  for (const bridge of ['windows', 'android']) {
+    const result = await capture({api, bridge, pages: {'/mod/assign/view.php?id=91': page},
+      detail: {requestId: 'selected-91', item: {url: origin + '/mod/assign/view.php?id=91'}}});
+    const packet = result.events.find(e => e.kind === 'assignment_detail');
+    assert.equal(packet.requestId, 'selected-91');
+    assert.equal(packet.found, true);
+    const item = packet.items[0];
+    assert.ok(item.body.length > 2000);
+    assert.ok(item.body.includes('\n'));
+    assert.equal(item.submitted, true);
+    assert.equal(item.submissionFilesKnown, true);
+    assert.equal(item.submittedFiles.length, 1);
+    assert.equal(item.submittedFiles[0].name, 'student-project.zip');
+    assert.equal(item.instructionFiles[0].name, '과제 안내.pdf');
+    assert.equal(item.instructionImages[0].name, '실행 결과 예시');
+    assert.equal(item.gradingStatus, '채점되지 않음');
+    assert.equal(item.modifiedAt, Date.parse('2026-10-20T17:46:00+09:00') / 1000);
+    assert.equal(item.dueAt, Date.parse('2026-11-04T13:00:00+09:00') / 1000);
+  }
+});
+
+test('detail failure and unverified file lists never claim there are no submitted files', async () => {
+  const api = ({methodname}) => methodname.includes('timeline') ? {courses: [], nextoffset: 0} : {events: [], courses: []};
+  const item = {url: origin + '/mod/assign/view.php?id=91'};
+  const unknown = await capture({api, pages: {'/mod/assign/view.php?id=91': statusDoc('제출 완료')}, detail: {requestId: 'unknown', item}});
+  assert.equal(unknown.events.find(e => e.kind === 'assignment_detail').items[0].submissionFilesKnown, false);
+  const failed = await capture({api, detail: {requestId: 'failed', item}});
+  assert.equal(failed.events.find(e => e.kind === 'assignment_detail').found, false);
+  const external = await capture({api, detail: {requestId: 'external', item: {url: 'https://other.example/mod/assign/view.php?id=91'}}});
+  assert.equal(external.events.find(e => e.kind === 'assignment_detail').found, false);
+  assert.ok(!external.requests.some(r => r.path.includes('other.example')));
 });
 
 test('all enrolled courses are paginated independently of notifications, including empty courses', async () => {

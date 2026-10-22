@@ -8,8 +8,35 @@ namespace WebNotifications
     [RequireComponent(typeof(NotificationManager))]
     public class SmartleadWebView : MonoBehaviour
     {
-        [Serializable] private class Notice { public int id, courseId; public long dueAt, createdAt, startAt; public string sender, title, body, url, courseName, courseCode, type; public bool read, readKnown, submitted, submissionKnown; }
-        [Serializable] private class Capture { public string kind, nonce, page, source, error; public int count, total, courseId; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated; public Notice[] items; }
+        [Serializable] private class Attachment { public string name, url; }
+        [Serializable] private class Notice { public int id, courseId; public long dueAt, createdAt, startAt, modifiedAt; public string sender, title, body, url, courseName, courseCode, type, submissionStatus, gradingStatus, submissionText; public bool read, readKnown, submitted, submissionKnown, detailLoaded, submissionFilesKnown, detailTruncated; public Attachment[] submittedFiles, instructionFiles, instructionImages; }
+        [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered; public Notice[] items; }
+        private const string RememberIdKey = "smartlead.remember-id";
+        private const string SavedIdKey = "smartlead.saved-id";
+        private const string AutomaticLoginKey = "smartlead.automatic-login";
+        private const string RequirePasswordKey = "smartlead.require-password";
+        private readonly Dictionary<string, string> loginMessagePages = new Dictionary<string, string>();
+        private bool RequiresPassword => PlayerPrefs.GetInt(RequirePasswordKey, 0) == 1;
+        private string pendingUsername, pendingPassword;
+        private bool automaticLoginAttempted;
+        private bool signingOut;
+        private float logoutDeadline;
+        [Serializable] private class LoginSettings { public string nonce, username, password; public bool remember, automatic, autoSubmit, secureStorageAvailable, requirePasswordEntry; }
+        [Serializable] private class DetailRequest { public string requestId; public Notice item; }
+        private bool showSubmittedAssignments;
+        private WebViewObject assignmentView;
+        private bool assignmentVisible, assignmentAttachmentVisible;
+        private bool assignmentSubmissionVisible, refreshAssignmentAfterSubmission;
+        private Notice assignmentDocumentTarget;
+        private string assignmentDocumentRequest, assignmentDocumentNonce, assignmentDocumentHtml;
+        private string pendingAssignmentHtml;
+        public string AssignmentRenderStatus { get; private set; }
+        private float assignmentRendererDeadline;
+        private string[] assignmentDocumentParts;
+        private float assignmentDocumentDeadline;
+        public bool IsAssignmentDetailVisible => assignmentVisible;
+        public bool IsAssignmentSubmissionVisible => assignmentSubmissionVisible;
+        public string AssignmentDetailTitle => assignmentSubmissionVisible ? "과제 파일 첨부·제출" : assignmentAttachmentVisible ? "과제 첨부파일" : assignmentDocumentTarget?.title ?? "과제 상세";
         private const string NotificationPage = "https://smartlead.hallym.ac.kr/local/ubion/user/index.php";
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
@@ -59,7 +86,7 @@ namespace WebNotifications
         public int MessageTotal { get; private set; }
         public bool HasMessagesResult { get; private set; }
         public bool IsAuthenticated { get; private set; }
-        public bool IsSchoolPageVisible => authenticationVisible;
+        public bool IsSchoolPageVisible => authenticationVisible || assignmentVisible;
         private GUIStyle touchButton;
         private GUIStyle agendaLabel, agendaButton;
 
@@ -81,9 +108,16 @@ namespace WebNotifications
             {
                 view = new GameObject("SmartLEAD Notification WebView").AddComponent<WebViewObject>();
                 view.transform.SetParent(transform);
-                view.Init(cb: Receive, err: _ => Status = "SmartLEAD 연결 실패",
-                    httpErr: _ => Status = "SmartLEAD 페이지 오류",
+                view.Init(cb: Receive, err: _ => { Status = "SmartLEAD 연결 실패"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면 연결에 실패했습니다. 뒤로 돌아가 다시 열어 주세요."; },
+                    httpErr: _ => { Status = "SmartLEAD 페이지 오류"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면에서 오류가 발생했습니다. 학교 화면의 안내를 확인해 주세요."; },
                     started: url => { currentUrl = url; nonce = null; HasResult = false; HasMessagesResult = false;
+                        if (assignmentSubmissionVisible) return;
+                        if (SchoolPage(url) && new Uri(url).AbsolutePath.Equals("/login/logout.php", StringComparison.OrdinalIgnoreCase))
+                        {
+                            RequireFreshLogin();
+                            PlayerPrefs.SetInt(AutomaticLoginKey, 0); PlayerPrefs.Save();
+                            SmartleadCredentialStore.Delete(); pendingPassword = null; automaticLoginAttempted = true;
+                        }
                         notificationsConfirmed = false;
                         schoolResult = false; schoolStatus = "학교 알림 조회 중"; apiStatus = "Moodle 알림 API 확인 중";
                         historyResult = false; notificationPriority = 0; historyStatus = "읽은 알림 포함 기록 조회 중";
@@ -91,8 +125,14 @@ namespace WebNotifications
                         Status = "알림 확인 중"; MessageStatus = "쪽지 확인 중"; },
                     ld: url => { currentUrl = url; Inject(); }, androidForceDarkMode: 1);
                 ShowAuthentication();
-                // Let the school reuse its session or redirect to login when it has expired.
-                view.LoadURL(NotificationPage);
+                // An explicit logout must also survive an editor/app restart. Discard any
+                // remaining local cookies before starting a fresh school login.
+                if (RequiresPassword)
+                {
+                    view.ClearCookies(); view.SaveCookies();
+                    view.LoadURL("https://smartlead.hallym.ac.kr/login.php");
+                }
+                else view.LoadURL(NotificationPage);
                 Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
                 MessageStatus = "로그인 대기 중";
                 nextRefresh = Time.unscaledTime + 120;
@@ -110,9 +150,7 @@ namespace WebNotifications
             if (paused)
             {
                 applicationPaused = true;
-#if UNITY_ANDROID && !UNITY_EDITOR
                 view?.SaveCookies();
-#endif
                 return;
             }
             if (!applicationPaused) return;
@@ -127,6 +165,8 @@ namespace WebNotifications
 
         private void HandleMobileBack()
         {
+            if (signingOut) return;
+            if (assignmentVisible) { CloseAssignmentDetail(); return; }
             var detail = GetComponent<NotificationDetailUI>();
             if (detail != null && detail.IsNotificationPanelOpen) { detail.CloseNotifications(); return; }
             if (view != null && authenticationVisible)
@@ -150,10 +190,23 @@ namespace WebNotifications
                 url.Host == "smartlead.hallym.ac.kr" && url.Port == 443 && string.IsNullOrEmpty(url.UserInfo);
         }
 
+        private static bool LoginPage(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var url) || url.Scheme != "https" ||
+                url.Port != 443 || !string.IsNullOrEmpty(url.UserInfo)) return false;
+            return (url.Host == "smartlead.hallym.ac.kr" &&
+                (url.AbsolutePath == "/login/index.php" || url.AbsolutePath == "/login.php")) ||
+                (url.Host == "sso.hallym.ac.kr" && url.AbsolutePath.Equals("/Account/LogIn", StringComparison.OrdinalIgnoreCase));
+        }
+
         private void Inject()
         {
+            // Keep the live school file picker, scripts, session and save forms intact.
+            // Collectors must not navigate or replace a submission in progress.
+            if (assignmentSubmissionVisible) { AssignmentRenderStatus = null; return; }
             if (!SchoolPage(currentUrl) || new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             {
+                if (refreshAssignmentAfterSubmission) DismissAssignmentDetail();
                 IsAuthenticated = false;
                 courseCubes?.Clear();
                 notificationDetails.Clear(); messageDetails.Clear(); SelectCourse(null, null);
@@ -162,6 +215,30 @@ namespace WebNotifications
                 returnFromLogin = true;
                 ShowAuthentication();
                 Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
+                if (LoginPage(currentUrl))
+                {
+                    var loginScript = Resources.Load<TextAsset>("SmartleadLogin");
+                    if (loginScript != null)
+                    {
+                        nonce = Guid.NewGuid().ToString("N");
+                        // Submit callbacks can arrive after navigation has already changed currentUrl/nonce.
+                        // Retain the issued login document token until a real new form or logout supersedes it.
+                        if (loginMessagePages.Count >= 8) loginMessagePages.Clear();
+                        loginMessagePages[nonce] = currentUrl;
+                        var settings = new LoginSettings { nonce = nonce,
+                            remember = PlayerPrefs.GetInt(RememberIdKey, 1) == 1,
+                            username = PlayerPrefs.GetString(SavedIdKey, ""), secureStorageAvailable = SmartleadCredentialStore.IsSupported,
+                            requirePasswordEntry = RequiresPassword };
+                        settings.automatic = !RequiresPassword && PlayerPrefs.GetInt(AutomaticLoginKey, 0) == 1 && settings.secureStorageAvailable;
+                        if (settings.automatic && SmartleadCredentialStore.TryLoad(out var savedUsername, out var savedPassword))
+                        {
+                            settings.username = savedUsername; settings.password = savedPassword;
+                            settings.autoSubmit = !automaticLoginAttempted;
+                            automaticLoginAttempted = true;
+                        }
+                        view.EvaluateJS(loginScript.text.Replace("__LOGIN_SETTINGS__", JsonUtility.ToJson(settings)));
+                    }
+                }
                 return;
             }
             var path = new Uri(currentUrl).AbsolutePath;
@@ -185,10 +262,36 @@ namespace WebNotifications
         private void Update()
         {
             if (applicationPaused) return;
+            if (signingOut)
+            {
+                if (Time.unscaledTime >= logoutDeadline) FinishLogout();
+                return;
+            }
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (Input.GetKeyDown(KeyCode.Escape)) { HandleMobileBack(); return; }
 #endif
             if (view == null) return;
+            if (assignmentVisible)
+            {
+                ApplyWebViewMargins();
+                if (pendingAssignmentHtml != null && assignmentView != null && assignmentView.IsInitialized())
+                {
+                    var html = pendingAssignmentHtml; pendingAssignmentHtml = null;
+                    assignmentRendererDeadline = Time.unscaledTime + 10;
+                    assignmentView.LoadHTML(html, "https://smartlead.hallym.ac.kr/");
+                }
+                if (assignmentRendererDeadline > 0 && Time.unscaledTime >= assignmentRendererDeadline)
+                {
+                    assignmentRendererDeadline = 0;
+                    AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 새로고침을 눌러 다시 시도해 주세요.";
+                }
+                if (assignmentDocumentDeadline > 0 && Time.unscaledTime >= assignmentDocumentDeadline)
+                {
+                    assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
+                    RenderAssignmentDocument("<p class='notice'>과제 내용을 불러오는 데 시간이 걸리고 있습니다. 위의 새로고침을 눌러 다시 시도해 주세요.</p>");
+                }
+                return;
+            }
             if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
             {
                 networkWasUnavailable = true;
@@ -234,13 +337,14 @@ namespace WebNotifications
             authenticationVisible = true;
             courseCubes?.SetVisible(false);
             ApplyWebViewMargins();
-            view.SetVisibility(!websiteNoticesVisible);
+            view.SetVisibility(!websiteNoticesVisible && !signingOut);
         }
 
         public void SetWebsiteNoticesVisible(bool visible)
         {
             websiteNoticesVisible = visible;
-            view?.SetVisibility(!visible && authenticationVisible);
+            view?.SetVisibility(!visible && (authenticationVisible || assignmentSubmissionVisible) && !signingOut);
+            assignmentView?.SetVisibility(!visible && assignmentVisible && !assignmentSubmissionVisible);
         }
 
         public void OpenAccountPage()
@@ -249,6 +353,56 @@ namespace WebNotifications
             accountPagePinned = true;
             ShowAuthentication();
             view.LoadURL(NotificationPage);
+        }
+
+        public void Logout()
+        {
+            if (signingOut) return;
+            DismissAssignmentDetail();
+            RequireFreshLogin();
+            ForgetSavedLogin();
+            automaticLoginAttempted = true;
+            signingOut = true;
+            logoutDeadline = Time.unscaledTime + 10;
+            IsAuthenticated = false; HasResult = HasMessagesResult = false;
+            Count = Total = MessageCount = MessageTotal = 0;
+            titles.Clear(); messages.Clear(); notificationDetails.Clear(); messageDetails.Clear();
+            SelectCourse(null, null); ClearCoursework(); courseCubes?.Clear();
+            accountPagePinned = false; returnFromLogin = true;
+            resumeRefreshPending = false;
+            Status = "로그아웃 중…"; MessageStatus = "로그인 대기 중";
+            ShowAuthentication();
+            var logoutScript = Resources.Load<TextAsset>("SmartleadLogout");
+            if (view != null && SchoolPage(currentUrl) && !string.IsNullOrEmpty(nonce) && logoutScript != null)
+                view.EvaluateJS(logoutScript.text.Replace("__UNITY_NONCE__", nonce));
+            else FinishLogout();
+        }
+
+        private void ForgetSavedLogin()
+        {
+            PlayerPrefs.DeleteKey(SavedIdKey);
+            PlayerPrefs.SetInt(RememberIdKey, 0);
+            PlayerPrefs.SetInt(AutomaticLoginKey, 0);
+            PlayerPrefs.Save();
+            SmartleadCredentialStore.Delete(); pendingUsername = pendingPassword = null;
+        }
+
+        private void RequireFreshLogin()
+        {
+            loginMessagePages.Clear();
+            PlayerPrefs.SetInt(RequirePasswordKey, 1);
+            PlayerPrefs.Save();
+        }
+
+        private void FinishLogout()
+        {
+            if (!signingOut) return;
+            signingOut = false; nonce = null;
+            view?.ClearCookies(); // Includes the app WebView's Hallym SSO cookies, preventing silent re-login.
+            view?.SaveCookies();
+            Status = "로그아웃했습니다. 학교 계정으로 다시 로그인해 주세요.";
+            ShowAuthentication();
+            view?.LoadURL("https://smartlead.hallym.ac.kr/login.php");
         }
 
         public void OpenHistoryPage()
@@ -265,7 +419,7 @@ namespace WebNotifications
             accountPagePinned = false;
             authenticationVisible = false;
             view?.SetVisibility(false);
-            courseCubes?.SetVisible(true);
+            courseCubes?.SetVisible(!assignmentVisible);
             nextRefresh = Time.unscaledTime + 120;
         }
 
@@ -293,12 +447,15 @@ namespace WebNotifications
             var area = CampusScreenLayout.ContentArea;
             view.SetMargins(Mathf.RoundToInt(area.x), Mathf.RoundToInt(area.y),
                 Mathf.RoundToInt(Screen.width - area.xMax), Mathf.RoundToInt(Screen.height - area.yMax));
+            assignmentView?.SetMargins(Mathf.RoundToInt(area.x), Mathf.RoundToInt(area.y),
+                Mathf.RoundToInt(Screen.width - area.xMax), Mathf.RoundToInt(Screen.height - area.yMax));
         }
 
         public void CloseSchoolPage() { HideAccountPage(); }
 
         public void Refresh()
         {
+            if (signingOut) return;
             if (view == null) return;
             if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
             {
@@ -320,20 +477,101 @@ namespace WebNotifications
 
         private void Receive(string message)
         {
-            if (string.IsNullOrEmpty(nonce) || string.IsNullOrEmpty(message) || message.Length > 64000 || !SchoolPage(currentUrl)) return;
+            if (string.IsNullOrEmpty(message) || message.Length > 64000) return;
             Capture data;
             try { data = JsonUtility.FromJson<Capture>(message); } catch { return; }
-            if (data == null || data.nonce != nonce || data.page != currentUrl) return;
+            if (data == null) return;
+            if (data.kind == "login_ready" || data.kind == "login_existing_session" || data.kind == "login_preferences" || data.kind == "login_submit")
+            {
+                if (signingOut || string.IsNullOrEmpty(data.nonce) || !LoginPage(data.page) ||
+                    !loginMessagePages.TryGetValue(data.nonce, out var loginPage) || loginPage != data.page) return;
+                if (!(SchoolPage(currentUrl) || (Uri.TryCreate(currentUrl, UriKind.Absolute, out var navigation) &&
+                    navigation.Scheme == "https" && navigation.Host == "sso.hallym.ac.kr" && navigation.Port == 443 && string.IsNullOrEmpty(navigation.UserInfo)))) return;
+                if (data.kind == "login_ready")
+                {
+                    loginMessagePages.Clear(); loginMessagePages[data.nonce] = data.page;
+                    pendingUsername = pendingPassword = null;
+                    return;
+                }
+                if (data.kind == "login_existing_session")
+                {
+                    // The school already has a session. Verify it on a protected page;
+                    // never automatically log out a successful SSO callback.
+                    view?.LoadURL(NotificationPage);
+                    return;
+                }
+                PlayerPrefs.SetInt(RememberIdKey, data.remember ? 1 : 0);
+                bool automatic = data.automatic && data.remember && SmartleadCredentialStore.IsSupported;
+                PlayerPrefs.SetInt(AutomaticLoginKey, automatic ? 1 : 0);
+                if (!automatic) { SmartleadCredentialStore.Delete(); pendingPassword = null; }
+                if (!data.remember) { PlayerPrefs.DeleteKey(SavedIdKey); pendingUsername = null; }
+                else if (data.kind == "login_submit")
+                {
+                    automaticLoginAttempted |= automatic;
+                    pendingUsername = !string.IsNullOrWhiteSpace(data.username) && data.username.Length <= 256 ? data.username.Trim() : null;
+                    pendingPassword = automatic && !string.IsNullOrEmpty(data.password) && data.password.Length <= 2048 ? data.password : null;
+                }
+                data.password = null;
+                PlayerPrefs.Save();
+                return;
+            }
+            if (string.IsNullOrEmpty(nonce) || data.nonce != nonce || data.page != currentUrl || !SchoolPage(currentUrl)) return;
+            if (signingOut)
+            {
+                if (data.kind == "logout_complete") FinishLogout();
+                return;
+            }
+            if (data.kind == "assignment_document" || data.kind == "assignment_document_error")
+            {
+                if (!assignmentVisible || string.IsNullOrEmpty(assignmentDocumentRequest) || data.requestId != assignmentDocumentRequest) return;
+                if (data.kind == "assignment_document_error")
+                {
+                    assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
+                    RenderAssignmentDocument("<p class='notice'>" + System.Net.WebUtility.HtmlEncode(data.error) + "</p>");
+                    return;
+                }
+                if (assignmentDocumentTarget == null || !SameActivity(data.url, assignmentDocumentTarget.url) || data.total < 1 || data.total > 525 ||
+                    data.index < 0 || data.index >= data.total || data.html == null || data.html.Length > 8000) return;
+                if (assignmentDocumentParts == null) assignmentDocumentParts = new string[data.total];
+                if (assignmentDocumentParts.Length != data.total) return;
+                assignmentDocumentParts[data.index] = data.html;
+                if (Array.Exists(assignmentDocumentParts, part => part == null)) return;
+                assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
+                RenderAssignmentDocument(string.Concat(assignmentDocumentParts));
+                assignmentDocumentParts = null;
+                return;
+            }
             if (ReceiveCoursework(data)) return;
             if (data.kind == "session")
             {
                 if (!data.authenticated) return;
+                PlayerPrefs.DeleteKey(RequirePasswordKey); PlayerPrefs.Save();
+                loginMessagePages.Clear();
                 IsAuthenticated = true;
+                // Commit the ID only after the school confirms authentication.
+                if (!string.IsNullOrEmpty(pendingUsername) && PlayerPrefs.GetInt(RememberIdKey, 1) == 1)
+                {
+                    PlayerPrefs.SetString(SavedIdKey, pendingUsername);
+                    PlayerPrefs.Save();
+                }
+                if (!string.IsNullOrEmpty(pendingPassword) && PlayerPrefs.GetInt(AutomaticLoginKey, 0) == 1)
+                {
+                    if (!SmartleadCredentialStore.Save(pendingUsername, pendingPassword))
+                    { PlayerPrefs.SetInt(AutomaticLoginKey, 0); PlayerPrefs.Save(); Status = "자동 로그인 정보를 안전하게 저장하지 못했습니다. 계정 화면에서 다시 설정해 주세요."; }
+                }
+                pendingUsername = null; pendingPassword = null;
+                view?.SaveCookies();
                 if (!accountPagePinned) HideAccountPage();
+                if (refreshAssignmentAfterSubmission && assignmentVisible)
+                {
+                    refreshAssignmentAfterSubmission = false;
+                    RefreshAssignmentDetail();
+                }
                 return;
             }
             if (data.kind == "authentication")
             {
+                if (refreshAssignmentAfterSubmission) DismissAssignmentDetail();
                 nonce = null; // Reject late results from either collector after a session expires.
                 IsAuthenticated = false;
                 HasResult = false;
@@ -425,6 +663,7 @@ namespace WebNotifications
 
         private void ClearCoursework()
         {
+            DismissAssignmentDetail();
             assignmentDetails.Clear(); enrolledCourses.Clear(); assignmentsConfirmed.Clear(); assignmentsFailed.Clear();
             scheduleDetails.Clear(); incomingSchedules.Clear(); courseworkFailed = false; scheduleAvailable = false; courseworkFinished = false; courseworkDeadline = 0;
             assignmentUpdates.Clear(); receivedCourses.Clear(); incomingCourses.Clear(); currentRosterKnown = false;
@@ -692,8 +931,7 @@ namespace WebNotifications
                 GUI.backgroundColor = background;
                 if (clicked)
                 {
-                    GetComponent<NotificationDetailUI>()?.OpenCourseNotifications(NoticeCourseKey(item), item.courseName);
-                    selectedNotice = item;
+                    OpenAssignmentDetail(item);
                 }
             }
             bool emptyConfirmed = enrolledCourses.Count > 0 && assignmentsConfirmed.Count == enrolledCourses.Count && !rosterPartial;
@@ -730,7 +968,10 @@ namespace WebNotifications
                 if (GUILayout.Button("전체 알림 보기", touchButton)) SelectCourse(null, null);
             }
             int count = 0;
+            showSubmittedAssignments = GUILayout.Toggle(showSubmittedAssignments, "제출 완료 과제도 보기", touchButton);
             DrawNoticeList(PendingAssignments(), "과제", label, ref count);
+            if (showSubmittedAssignments)
+                DrawNoticeList(assignmentDetails.FindAll(item => item.submissionKnown && item.submitted && IsCurrentCourse(item)), "제출 완료 과제", label, ref count);
             DrawNoticeList(notificationDetails, "알림", label, ref count);
             DrawNoticeList(messageDetails, "쪽지", label, ref count);
             if (count == 0)
@@ -780,8 +1021,8 @@ namespace WebNotifications
             {
                 if (currentRosterKnown && NoticeCourseKey(item) != null && !IsCurrentCourse(item)) continue;
                 if (!string.IsNullOrEmpty(selectedCourseKey) && NoticeCourseKey(item) != selectedCourseKey) continue;
-                bool assignment = kind == "과제";
-                if (assignment ? item.submissionKnown && item.submitted : item.readKnown && item.read) continue;
+                bool assignment = kind == "과제" || kind == "제출 완료 과제";
+                if (!assignment && item.readKnown && item.read) continue;
                 count++;
                 string title = string.IsNullOrWhiteSpace(item.title) ? "제목 없음" : item.title;
                 var period = NoticeDeadline(item);
@@ -795,12 +1036,16 @@ namespace WebNotifications
                     (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), touchButton);
                 GUI.backgroundColor = background;
                 if (clicked)
-                    selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
+                {
+                    if (assignment) OpenAssignmentDetail(item);
+                    else selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
+                }
+                if (assignment) continue;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
                 GUI.backgroundColor = color;
                 GUILayout.BeginVertical(GUI.skin.box);
                 GUI.backgroundColor = background;
-                GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? "미제출" : "제출 확인 필요" : ReadLabel(item)), label);
+                GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? item.submitted ? "제출 완료" : "미제출 / 작성 중" : "제출 확인 필요" : ReadLabel(item)), label);
                 GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), label);
                 GUILayout.Label(time, label);
                 GUILayout.Label(CampusScreenLayout.DeadlineLabel(due, now), label);
@@ -813,6 +1058,147 @@ namespace WebNotifications
                 if (SchoolPage(item.url) && GUILayout.Button("학교에서 원문 보기", touchButton)) OpenNoticePage(item);
                 GUILayout.EndVertical();
             }
+        }
+
+        private void OpenAssignmentDetail(Notice item)
+        {
+            if (view == null || string.IsNullOrEmpty(nonce) || !SchoolPage(item.url)) return;
+            if (assignmentView == null)
+            {
+                assignmentView = new GameObject("Pixel Campus Assignment Detail").AddComponent<WebViewObject>();
+                assignmentView.transform.SetParent(transform);
+                assignmentView.Init(cb: ReceiveAssignmentAction,
+                    ld: _ => { AssignmentRenderStatus = null; assignmentRendererDeadline = 0; },
+                    err: _ => { AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 새로고침으로 다시 시도해 주세요."; assignmentRendererDeadline = 0; },
+                    httpErr: _ => { AssignmentRenderStatus = "과제 첨부파일을 불러오지 못했습니다. 뒤로 돌아가 다시 시도해 주세요."; assignmentRendererDeadline = 0; },
+                    androidForceDarkMode: 1);
+            }
+            assignmentDocumentTarget = item;
+            assignmentVisible = true; assignmentAttachmentVisible = false;
+            assignmentDocumentNonce = Guid.NewGuid().ToString("N");
+            view.SetVisibility(false); courseCubes?.SetVisible(false);
+            ApplyWebViewMargins(); assignmentView.SetVisibility(!websiteNoticesVisible);
+            RefreshAssignmentDetail();
+        }
+
+        public void RefreshAssignmentDetail()
+        {
+            if (!assignmentVisible || assignmentSubmissionVisible || assignmentDocumentTarget == null) return;
+            assignmentAttachmentVisible = false;
+            assignmentDocumentParts = null;
+            RenderAssignmentDocument("<p class='notice'>과제 본문과 제출 상황을 불러오는 중…</p>");
+            var capture = Resources.Load<TextAsset>("SmartleadAssignmentDocument");
+            if (capture == null || string.IsNullOrEmpty(nonce))
+            {
+                RenderAssignmentDocument("<p class='notice'>과제 화면을 준비하지 못했습니다. 뒤로 돌아가 다시 확인해 주세요.</p>");
+                return;
+            }
+            assignmentDocumentRequest = Guid.NewGuid().ToString("N");
+            assignmentDocumentDeadline = Time.unscaledTime + 16;
+            var request = new DetailRequest { requestId = assignmentDocumentRequest, item = assignmentDocumentTarget };
+            view.EvaluateJS(capture.text.Replace("__ASSIGNMENT_REQUEST__", JsonUtility.ToJson(request)).Replace("__UNITY_NONCE__", nonce));
+        }
+
+        private void RenderAssignmentDocument(string content)
+        {
+            var template = Resources.Load<TextAsset>("AssignmentDetail");
+            if (template == null)
+            {
+                AssignmentRenderStatus = "과제 화면 템플릿을 불러오지 못했습니다. Unity의 AssignmentDetail.html 에셋 가져오기 상태를 확인해 주세요.";
+                Debug.LogError("Pixel Campus: Resources/AssignmentDetail.html 템플릿을 불러오지 못했습니다. .meta GUID와 TextAsset 가져오기 상태를 확인하세요.");
+                return;
+            }
+            if (assignmentView == null)
+            {
+                AssignmentRenderStatus = "과제 화면 표시 장치가 준비되지 않았습니다. 뒤로 돌아가 다시 열어 주세요.";
+                return;
+            }
+            // Replace content last: school text containing a template marker must remain text.
+            assignmentDocumentHtml = template.text.Replace("__DOCUMENT_NONCE__", assignmentDocumentNonce)
+                .Replace("__COURSE_TITLE__", System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.courseName ?? ""))
+                .Replace("__ASSIGNMENT_TITLE__", System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.title ?? "과제 상세"))
+                .Replace("__ASSIGNMENT_CONTENT__", content);
+            AssignmentRenderStatus = "과제 화면 준비 중…";
+            assignmentRendererDeadline = Time.unscaledTime + 10;
+            if (!assignmentView.IsInitialized()) pendingAssignmentHtml = assignmentDocumentHtml;
+            else
+            {
+                pendingAssignmentHtml = null;
+                assignmentView.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
+            }
+        }
+
+        private void ReceiveAssignmentAction(string message)
+        {
+            if (!assignmentVisible || string.IsNullOrEmpty(message) || message.Length > 8000) return;
+            Capture data;
+            try { data = JsonUtility.FromJson<Capture>(message); } catch { return; }
+            if (data == null || data.nonce != assignmentDocumentNonce || assignmentSubmissionVisible) return;
+            if (data.kind == "assignment_submission") { OpenAssignmentSubmission(); return; }
+            if (data.kind != "assignment_attachment" || !SchoolPage(data.url)) return;
+            var path = new Uri(data.url).AbsolutePath;
+            if (!(path.Contains("/pluginfile.php/") || path.Contains("/draftfile.php/"))) return;
+            assignmentAttachmentVisible = true;
+            assignmentView.LoadURL(data.url); // Only an explicitly selected file, never the original assignment page.
+        }
+
+        public void OpenAssignmentSubmission()
+        {
+            if (!assignmentVisible || assignmentDocumentTarget == null || view == null ||
+                !SchoolPage(assignmentDocumentTarget.url)) return;
+            var path = new Uri(assignmentDocumentTarget.url).AbsolutePath;
+            if (path != "/mod/assign/view.php" && path != "/mod/ubassign/view.php") return;
+            assignmentDocumentRequest = null; assignmentDocumentParts = null;
+            assignmentDocumentDeadline = assignmentRendererDeadline = 0;
+            pendingAssignmentHtml = null;
+            assignmentSubmissionVisible = true; assignmentAttachmentVisible = false;
+            refreshAssignmentAfterSubmission = false;
+            AssignmentRenderStatus = "학교 제출 화면을 여는 중…";
+            assignmentView?.EvaluateJS("document.querySelectorAll('video,audio').forEach(function(player){player.pause();});");
+            assignmentView?.SetVisibility(false);
+            // Reuse the authenticated WebView so HttpOnly cookies and the school's
+            // CSRF/session fields never have to be copied into a separate uploader.
+            view.SetVisibility(!websiteNoticesVisible);
+            view.LoadURL(assignmentDocumentTarget.url);
+        }
+
+        public void CloseAssignmentDetail()
+        {
+            if (assignmentSubmissionVisible)
+            {
+                assignmentSubmissionVisible = false;
+                refreshAssignmentAfterSubmission = true;
+                view.SetVisibility(false);
+                assignmentView?.SetVisibility(!websiteNoticesVisible);
+                RenderAssignmentDocument("<p class='notice'>학교에서 제출 상태를 다시 확인하고 있습니다…</p>");
+                assignmentDocumentDeadline = Time.unscaledTime + 16;
+                // Restore the collector page only after the user leaves the form.
+                // Loading it during a file chooser/app resume would discard input.
+                resumeRefreshPending = false;
+                view.LoadURL(NotificationPage);
+                return;
+            }
+            if (assignmentAttachmentVisible)
+            {
+                assignmentAttachmentVisible = false;
+                assignmentView?.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
+                return;
+            }
+            DismissAssignmentDetail();
+            courseCubes?.SetVisible(IsAuthenticated && !authenticationVisible);
+        }
+
+        private void DismissAssignmentDetail()
+        {
+            // Hiding a WebView does not necessarily stop its media playback.
+            assignmentView?.EvaluateJS("document.querySelectorAll('video,audio').forEach(function(player){player.pause();});");
+            assignmentVisible = assignmentAttachmentVisible = false;
+            if (assignmentSubmissionVisible) view?.SetVisibility(false);
+            assignmentSubmissionVisible = refreshAssignmentAfterSubmission = false;
+            assignmentDocumentRequest = assignmentDocumentHtml = assignmentDocumentNonce = null;
+            pendingAssignmentHtml = null; AssignmentRenderStatus = null; assignmentRendererDeadline = 0;
+            assignmentDocumentParts = null; assignmentDocumentTarget = null; assignmentDocumentDeadline = 0;
+            assignmentView?.SetVisibility(false);
         }
 
         public void Draw(GUIStyle label)
@@ -831,11 +1217,16 @@ namespace WebNotifications
             if (!historyResult) GUILayout.Label(historyStatus, label);
             if (GUILayout.Button("다시 확인", touchButton)) Refresh();
             if (GUILayout.Button("학교 로그인 / 계정 확인", touchButton)) OpenAccountPage();
+            if ((PlayerPrefs.HasKey(SavedIdKey) || PlayerPrefs.GetInt(AutomaticLoginKey, 0) == 1) && GUILayout.Button("저장된 ID·비밀번호 삭제 / 자동 로그인 해제", touchButton))
+            {
+                ForgetSavedLogin();
+            }
             if (GUILayout.Button("학교 알림 기록 보기", touchButton)) OpenHistoryPage();
             if (accountPagePinned && (HasResult || HasMessagesResult) && GUILayout.Button("학교 화면 닫기", touchButton)) HideAccountPage();
         }
 
-        private void OnDestroy() { if (view != null) Destroy(view.gameObject); }
+        private void OnApplicationQuit() { view?.SaveCookies(); }
+        private void OnDestroy() { pendingPassword = null; if (assignmentView != null) Destroy(assignmentView.gameObject); if (view != null) { view.SaveCookies(); Destroy(view.gameObject); } }
     }
 }
 

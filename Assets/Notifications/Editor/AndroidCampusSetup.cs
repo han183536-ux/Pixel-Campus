@@ -1,5 +1,6 @@
 using System.IO;
 using System.Xml;
+using System.Text.RegularExpressions;
 using UnityEditor.Android;
 
 namespace WebNotifications.Editor
@@ -14,6 +15,27 @@ namespace WebNotifications.Editor
         public void OnPostGenerateGradleAndroidProject(string path)
         {
             ConfigureManifest(Path.Combine(path, "src", "main", "AndroidManifest.xml"));
+            ConfigureFileUploadDependencies(path);
+        }
+
+        public static void ConfigureFileUploadDependencies(string path)
+        {
+            // The official Fragment variant references AndroidX FileProvider.
+            // Gradle resolves its transitive dependencies; do not bundle duplicate AARs.
+            var gradlePath = Path.Combine(path, "build.gradle");
+            var gradle = File.ReadAllText(gradlePath);
+            if (!gradle.Contains("androidx.core:core:"))
+            {
+                var dependencies = Regex.Match(gradle, @"(?m)^\s*dependencies\s*\{");
+                if (!dependencies.Success) throw new InvalidDataException("Android dependencies block is missing: " + gradlePath);
+                gradle = gradle.Insert(dependencies.Index + dependencies.Length, "\n    implementation 'androidx.core:core:1.6.0'");
+                File.WriteAllText(gradlePath, gradle);
+            }
+            var propertiesPath = Path.Combine(Path.GetDirectoryName(path), "gradle.properties");
+            var properties = File.Exists(propertiesPath) ? File.ReadAllText(propertiesPath) : "";
+            var androidX = new Regex(@"(?m)^\s*android\.useAndroidX\s*=.*$");
+            properties = androidX.IsMatch(properties) ? androidX.Replace(properties, "android.useAndroidX=true") : properties + "\nandroid.useAndroidX=true\n";
+            File.WriteAllText(propertiesPath, properties);
         }
 
         public static void ConfigureManifest(string path)

@@ -10,13 +10,18 @@ namespace WebNotifications
     {
         [Tooltip("Local prototype server. Use HTTPS for a deployed server.")]
         public string baseUrl = "http://127.0.0.1:8787";
+        private readonly NotificationRequestScope requests = new NotificationRequestScope();
+        public void CancelPendingRequests() { requests.CancelAll(); }
+        private void OnDisable() { CancelPendingRequests(); }
 
         public IEnumerator CheckLoginOptions(Action<NotificationLoginOptions> completed)
         {
-            using (var request = UnityWebRequest.Get(baseUrl.TrimEnd('/') + "/api/auth/capabilities"))
+            using (var lease = requests.Track(UnityWebRequest.Get(baseUrl.TrimEnd('/') + "/api/auth/capabilities")))
             {
+                var request = lease.Request;
                 request.timeout = 8;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 NotificationLoginOptions options = null;
                 try { options = JsonUtility.FromJson<NotificationLoginOptions>(request.downloadHandler.text); } catch (Exception) { }
                 if (options == null || string.IsNullOrEmpty(options.code))
@@ -34,8 +39,9 @@ namespace WebNotifications
                 yield break;
             }
             byte[] bytes = Encoding.UTF8.GetBytes(json);
-            using (var request = new UnityWebRequest(baseUrl.TrimEnd('/') + "/api/auth/" + action, "POST"))
+            using (var lease = requests.Track(new UnityWebRequest(baseUrl.TrimEnd('/') + "/api/auth/" + action, "POST")))
             {
+                var request = lease.Request;
                 request.uploadHandler = new UploadHandlerRaw(bytes);
                 Array.Clear(bytes, 0, bytes.Length);
                 request.downloadHandler = new DownloadHandlerBuffer();
@@ -43,7 +49,8 @@ namespace WebNotifications
                 request.SetRequestHeader("X-Notification-Client", "unity");
                 request.timeout = 25;
                 json = null;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 if (request.result == UnityWebRequest.Result.Success) success();
                 else
                 {
@@ -56,10 +63,12 @@ namespace WebNotifications
 
         public IEnumerator Fetch(Action<NotificationResponse> success, Action<string> failure)
         {
-            using (var request = UnityWebRequest.Get(baseUrl.TrimEnd('/') + "/api/notifications?today=true"))
+            using (var lease = requests.Track(UnityWebRequest.Get(baseUrl.TrimEnd('/') + "/api/notifications?today=true")))
             {
+                var request = lease.Request;
                 request.timeout = 10;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 if (request.result != UnityWebRequest.Result.Success)
                 {
                     string message = null;

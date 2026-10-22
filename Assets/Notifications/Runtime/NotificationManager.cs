@@ -33,6 +33,7 @@ namespace WebNotifications
         }
         private void OnDisable()
         {
+            GetComponent<NotificationApiClient>()?.CancelPendingRequests();
             StopAllCoroutines();
             loop = null;
             IsLoading = false;

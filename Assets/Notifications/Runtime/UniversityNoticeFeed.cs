@@ -33,6 +33,7 @@ namespace WebNotifications
         private int visibleLimit = 100;
         private int reloadIndex, successful, workers, detailIndex, detailsDone;
         private readonly HashSet<string> detailLoading = new HashSet<string>();
+        private readonly NotificationRequestScope requests = new NotificationRequestScope();
         private float nextRefresh;
         private float nextRebuild;
         private GUIStyle button, filterButton;
@@ -99,11 +100,13 @@ namespace WebNotifications
             while (reloadIndex < snapshot.Length)
             {
                 var board = snapshot[reloadIndex++];
-                using (var request = UnityWebRequest.Get(board.url))
+                using (var lease = requests.Track(UnityWebRequest.Get(board.url)))
                 {
+                    var request = lease.Request;
                     request.timeout = 12;
                     request.redirectLimit = 0;
-                    yield return request.SendWebRequest();
+                    yield return lease.Send();
+                    if (lease.Cancelled) yield break;
                     try
                     {
                         if (request.result != UnityWebRequest.Result.Success) throw new IOException("게시판 연결 실패");
@@ -132,10 +135,12 @@ namespace WebNotifications
         private IEnumerator FetchDetail(NotificationData item)
         {
             if (!Allowed(item.url) || !detailLoading.Add(item.id)) yield break;
-            using (var request = UnityWebRequest.Get(item.url))
+            using (var lease = requests.Track(UnityWebRequest.Get(item.url)))
             {
+                var request = lease.Request;
                 request.timeout = 12; request.redirectLimit = 0;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 if (request.result == UnityWebRequest.Result.Success)
                 {
                     var body = ExtractArticle(request.downloadHandler.text);
@@ -169,7 +174,12 @@ namespace WebNotifications
             catch (Exception) { Status += " · 기기 저장 실패"; }
         }
         private static string FeedKey(string url) => new Uri(url).AbsolutePath;
-        private void OnDisable() { StopAllCoroutines(); detailLoading.Clear(); IsLoading = discovering = false; nextRefresh = 0; }
+        private void OnDisable()
+        {
+            requests.CancelAll();
+            StopAllCoroutines();
+            detailLoading.Clear(); IsLoading = discovering = false; nextRefresh = 0;
+        }
         public static bool Allowed(string value) => Uri.TryCreate(value, UriKind.Absolute, out var url) &&
             url.Scheme == "https" && url.Port == 443 && string.IsNullOrEmpty(url.UserInfo) &&
             (url.Host == "hallym.ac.kr" || url.Host.EndsWith(".hallym.ac.kr", StringComparison.OrdinalIgnoreCase));
@@ -242,19 +252,23 @@ namespace WebNotifications
             addStatus = "공개 게시판 확인 중…";
             var pageUrl = addUrl.Trim();
             string feedUrl = pageUrl.Contains("/rssList.do") ? pageUrl : null;
-            if (feedUrl == null) using (var request = UnityWebRequest.Get(pageUrl))
+            if (feedUrl == null) using (var lease = requests.Track(UnityWebRequest.Get(pageUrl)))
             {
+                var request = lease.Request;
                 request.timeout = 12; request.redirectLimit = 0;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 if (request.result == UnityWebRequest.Result.Success) feedUrl = DiscoverRss(request.downloadHandler.text, pageUrl);
             }
             string error = null;
             if (feedUrl == null) error = "공개 RSS를 찾지 못했습니다. 게시판의 RSS 주소를 입력해 주세요.";
             else if (boards.Exists(b => FeedKey(b.url) == FeedKey(feedUrl))) error = "이미 등록된 게시판입니다.";
-            else using (var request = UnityWebRequest.Get(feedUrl))
+            else using (var lease = requests.Track(UnityWebRequest.Get(feedUrl)))
             {
+                var request = lease.Request;
                 request.timeout = 12; request.redirectLimit = 0;
-                yield return request.SendWebRequest();
+                yield return lease.Send();
+                if (lease.Cancelled) yield break;
                 try
                 {
                     if (request.result != UnityWebRequest.Result.Success) throw new IOException();
