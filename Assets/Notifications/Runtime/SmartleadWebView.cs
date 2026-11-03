@@ -108,6 +108,7 @@ namespace WebNotifications
 #endif
             courseCubes = GetComponent<SmartleadCourseCubes>();
             if (courseCubes == null) courseCubes = gameObject.AddComponent<SmartleadCourseCubes>();
+            if (GetComponent<CampusMapView>() == null) gameObject.AddComponent<CampusMapView>();
             var asset = Resources.Load<TextAsset>("SmartleadCapture");
             if (asset == null) { Status = "알림 확인 스크립트가 없습니다."; return; }
             script = asset.text;

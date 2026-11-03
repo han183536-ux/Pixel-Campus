@@ -131,9 +131,17 @@ namespace WebNotifications
             {
                 var school = manager.GetComponent<SmartleadWebView>();
                 mapCamera.rect = CampusScreenLayout.CameraRect;
+                var map = GetComponent<CampusMapView>();
+                if (map != null && school != null && school.IsAuthenticated && !school.IsSchoolPageVisible)
+                {
+                    var area = CampusMapView.Viewport;
+                    mapCamera.rect = new Rect(area.x / Screen.width, (Screen.height - area.yMax) / Screen.height,
+                        area.width / Screen.width, area.height / Screen.height);
+                }
                 if (!savedCameraMask) { cameraMask = mapCamera.cullingMask; savedCameraMask = true; }
                 mapCamera.enabled = true;
-                mapCamera.cullingMask = school != null && school.IsAuthenticated && !school.IsSchoolPageVisible ? cameraMask : 0;
+                mapCamera.cullingMask = school != null && school.IsAuthenticated && !school.IsSchoolPageVisible &&
+                    (map == null || !map.IsMapVisible) ? cameraMask : 0;
                 return;
             }
             mapCamera.enabled = true;
