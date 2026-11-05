@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Gree.UnityWebView;
 using UnityEngine;
 
@@ -98,7 +99,6 @@ namespace WebNotifications
         public bool IsAuthenticated { get; private set; }
         public bool IsSchoolPageVisible => authenticationVisible || assignmentVisible;
         private GUIStyle touchButton;
-        private GUIStyle agendaLabel, agendaButton;
 
         private void Start()
         {
@@ -184,7 +184,7 @@ namespace WebNotifications
             if (assignmentVisible) { CloseAssignmentDetail(); return; }
             if (lecturePageVisible) { CloseSchoolPage(); return; }
             var detail = GetComponent<NotificationDetailUI>();
-            if (detail != null && detail.IsNotificationPanelOpen) { detail.CloseNotifications(); return; }
+            if (detail != null && detail.NavigateBack(this)) return;
             if (view != null && authenticationVisible)
             {
                 // The Android IME normally consumes its own Back event. Do not
@@ -1016,7 +1016,6 @@ namespace WebNotifications
                 messageDetails.Find(item => NoticeCourseKey(item) == key);
         }
 
-        public float AgendaHeight => (PendingAssignments().Count * 68 + PendingLectures().Count * 104 + 235) * CampusScreenLayout.Scale;
 
         private CampusScreenLayout.DeadlinePeriod NoticeDeadline(Notice item)
         {
@@ -1040,73 +1039,68 @@ namespace WebNotifications
             }
         }
 
-        public void DrawUpcomingAgenda(Rect area)
+        private static readonly StringComparer KoreanCourseOrder = StringComparer.Create(CultureInfo.GetCultureInfo("ko-KR"), true);
+
+        public void DrawCourseTab(GUIStyle label)
         {
-            float scale = CampusScreenLayout.Scale;
-            if (agendaLabel == null)
+            var courses = new List<Notice>(enrolledCourses.Values);
+            courses.Sort((left, right) =>
             {
-                agendaLabel = new GUIStyle(GUI.skin.label) { wordWrap = true, richText = false };
-                agendaButton = new GUIStyle(GUI.skin.button) { wordWrap = true, richText = false, alignment = TextAnchor.MiddleLeft };
+                int order = KoreanCourseOrder.Compare(left.courseName, right.courseName);
+                if (order != 0) return order;
+                order = StringComparer.Ordinal.Compare(left.courseCode, right.courseCode);
+                return order != 0 ? order : left.courseId.CompareTo(right.courseId);
+            });
+            GUILayout.Label("현재 수강 중인 과목", CampusTheme.Heading);
+            if (!currentRosterKnown || rosterPartial)
+                GUILayout.Label(networkWasUnavailable ? Status : courseworkStatus, label);
+            else if (courses.Count == 0)
+                GUILayout.Label("현재 수강 중인 과목이 없습니다.", label);
+            var detail = GetComponent<NotificationDetailUI>();
+            foreach (var item in courses)
+            {
+                string name = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
+                string room = CourseClassrooms.Room(item.courseCode);
+                string caption = item.courseCode ?? "";
+                if (!string.IsNullOrWhiteSpace(room))
+                    caption = caption.Length > 0 ? caption + "  /  " + room : room;
+                if (CampusTheme.ListCard(name, caption, CampusTheme.Green))
+                    detail?.OpenCourseNotifications(NoticeCourseKey(item), name);
             }
-            agendaLabel.fontSize = Mathf.RoundToInt(12 * scale);
-            agendaButton.fontSize = Mathf.RoundToInt(11 * scale);
+        }
+
+        public void DrawAssignmentTab(GUIStyle label)
+        {
             var tasks = PendingAssignments();
-            GUILayout.BeginArea(area);
-            GUILayout.Label("남은 과제 일정 · " + tasks.Count + "건", agendaLabel, GUILayout.Height(24 * scale));
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            GUILayout.Label("남은 과제 (" + tasks.Count + ")", CampusTheme.Heading);
+            if (tasks.Count == 0)
+            {
+                bool emptyConfirmed = currentRosterKnown && !rosterPartial && assignmentsConfirmed.Count == enrolledCourses.Count;
+                GUILayout.Label(networkWasUnavailable ? Status : emptyConfirmed ? "남은 과제가 없습니다." : courseworkStatus, label);
+            }
             foreach (var item in tasks)
             {
-                var title = item.title ?? "과제";
-                if (title.Length > 54) title = title.Substring(0, 54) + "…";
-                var date = item.dueAt > 0 && item.dueAt <= 253402300799L ?
-                    DateTimeOffset.FromUnixTimeSeconds(item.dueAt).ToOffset(TimeSpan.FromHours(9)).ToString("MM/dd HH:mm") + " · " : "";
-                var caption = (string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName) + " · " + title +
-                    "\n" + date + CampusScreenLayout.RemainingTime(item.dueAt) +
-                    (!item.submissionKnown ? " · 제출 확인 필요" : "");
-                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                caption += "\n" + CampusScreenLayout.DeadlineLabel(item.dueAt, now);
-                var background = GUI.backgroundColor;
-                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, now));
-                bool clicked = GUILayout.Button(caption, agendaButton, GUILayout.Height(64 * scale));
-                GUI.backgroundColor = background;
-                if (clicked)
-                {
+                string title = string.IsNullOrWhiteSpace(item.title) ? "과제" : item.title;
+                string course = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
+                string date = item.dueAt > 0 && item.dueAt <= 253402300799L ?
+                    DateTimeOffset.FromUnixTimeSeconds(item.dueAt).ToOffset(TimeSpan.FromHours(9)).ToString("MM/dd HH:mm") + "  /  " : "";
+                string caption = date + CampusScreenLayout.RemainingTime(item.dueAt) + "\n" + course +
+                    (item.submissionKnown ? "" : "  /  제출 확인 필요");
+                var deadline = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, now));
+                if (CampusTheme.ListCard(title, caption, deadline, tint: true))
                     OpenAssignmentDetail(item);
-                }
             }
-            bool emptyConfirmed = enrolledCourses.Count > 0 && assignmentsConfirmed.Count == enrolledCourses.Count && !rosterPartial;
-            GUILayout.Label(networkWasUnavailable ? Status : tasks.Count == 0 ? emptyConfirmed ? "남은 과제 없음" : courseworkStatus : "마감이 가까운 과제부터 표시합니다. 제출 상태 미확인 일정은 학교에서 확인해 주세요.",
-                agendaLabel, GUILayout.Height(54 * scale));
-            var lectures = PendingLectures();
-            GUILayout.Label("동영상 출석 일정 · " + lectures.Count + "건", agendaLabel, GUILayout.Height(24 * scale));
-            foreach (var item in lectures)
-            {
-                var title = item.title ?? "동영상 강의";
-                if (title.Length > 54) title = title.Substring(0, 54) + "…";
-                var caption = CourseLabel(item) + title + "\n" + LecturePeriod(item) + "\n" + LectureRemaining(item) +
-                    "\n" + LectureAttendanceLabel(item);
-                var background = GUI.backgroundColor;
-                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-                bool clicked = GUILayout.Button(caption, agendaButton, GUILayout.Height(100 * scale));
-                GUI.backgroundColor = background;
-                if (clicked)
-                {
-                    GetComponent<NotificationDetailUI>()?.OpenCourseNotifications(NoticeCourseKey(item), item.courseName);
-                    selectedNotice = item;
-                }
-            }
-            GUILayout.Label(networkWasUnavailable ? Status : lectureStatus + (rosterPartial ? " · 전체 과목 확인 필요" : ""), agendaLabel, GUILayout.Height(48 * scale));
+            float buttonHeight = 38 * CampusScreenLayout.Scale;
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("일정 다시 확인", GUILayout.Height(34 * scale))) Refresh();
-            if (GUILayout.Button("학교 일정 보기", GUILayout.Height(34 * scale)))
+            if (GUILayout.Button("과제 다시 확인", GUILayout.MinHeight(buttonHeight))) Refresh();
+            if (GUILayout.Button("학교 일정 보기", GUILayout.MinHeight(buttonHeight)) && view != null)
             {
-                if (view != null)
-                {
-                    accountPagePinned = true; ShowAuthentication();
-                    view.LoadURL("https://smartlead.hallym.ac.kr/calendar/view.php?view=upcoming");
-                }
+                accountPagePinned = true;
+                ShowAuthentication();
+                view.LoadURL("https://smartlead.hallym.ac.kr/calendar/view.php?view=upcoming");
             }
             GUILayout.EndHorizontal();
-            GUILayout.EndArea();
         }
 
         private void OpenNoticePage(Notice item)
@@ -1141,9 +1135,10 @@ namespace WebNotifications
 
         private void DrawLectureList(GUIStyle label, ref int count)
         {
-            GUILayout.Label("동영상 출석 일정", label);
+            GUILayout.Label("동영상 출석 일정", CampusTheme.Heading);
             GUILayout.Label(lectureStatus, label);
-            showCompletedLectures = GUILayout.Toggle(showCompletedLectures, "출석 확인된 동영상도 보기", touchButton);
+            showCompletedLectures = GUILayout.Toggle(showCompletedLectures,
+                (showCompletedLectures ? "✓ " : "") + "출석 확인된 동영상도 보기", touchButton);
             var items = lectureDetails.FindAll(item => IsCurrentCourse(item) &&
                 (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey) &&
                 (showCompletedLectures || item.attendanceStale || !item.attendanceKnown || !item.attended));
@@ -1151,11 +1146,9 @@ namespace WebNotifications
             foreach (var item in items)
             {
                 count++;
-                var previous = GUI.backgroundColor;
-                GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-                if (GUILayout.Button("동영상 · " + item.title + "\n" + LectureRemaining(item) + "\n" + LectureAttendanceLabel(item), touchButton))
+                var deadline = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+                if (CampusTheme.DeadlineButton("동영상 · " + item.title + "\n" + LectureRemaining(item) + "\n" + LectureAttendanceLabel(item), deadline, touchButton))
                     selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
-                GUI.backgroundColor = previous;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
                 GUILayout.BeginVertical(GUI.skin.box);
                 GUILayout.Label(CourseLabel(item) + (item.week > 0 ? item.week + "주차" : ""), label);
@@ -1165,7 +1158,7 @@ namespace WebNotifications
                 if (!string.IsNullOrWhiteSpace(item.progressText)) GUILayout.Label(item.progressText, label);
                 if (!string.IsNullOrWhiteSpace(item.availabilityText)) GUILayout.Label(item.availabilityText, label);
                 GUILayout.Label("학교 플레이어에서 시청한 뒤 학교의 출석 상태를 확인하세요.", label);
-                if (GUILayout.Button("강의 보기", touchButton)) OpenLecture(item);
+                if (GUILayout.Button("강의 보기", CampusTheme.Primary)) OpenLecture(item);
                 GUILayout.EndVertical();
             }
         }
@@ -1174,12 +1167,13 @@ namespace WebNotifications
         {
             if (!string.IsNullOrEmpty(selectedCourseKey))
             {
-                GUILayout.Label(selectedCourseTitle + " · 과제 / 동영상 / 알림", label);
+                GUILayout.Label(selectedCourseTitle, CampusTheme.Heading);
                 DrawClassroom(label);
                 if (GUILayout.Button("전체 알림 보기", touchButton)) SelectCourse(null, null);
             }
             int count = 0;
-            showSubmittedAssignments = GUILayout.Toggle(showSubmittedAssignments, "제출 완료 과제도 보기", touchButton);
+            showSubmittedAssignments = GUILayout.Toggle(showSubmittedAssignments,
+                (showSubmittedAssignments ? "✓ " : "") + "제출 완료 과제도 보기", touchButton);
             DrawNoticeList(PendingAssignments(), "과제", label, ref count);
             if (showSubmittedAssignments)
                 DrawNoticeList(assignmentDetails.FindAll(item => item.submissionKnown && item.submitted && IsCurrentCourse(item)), "제출 완료 과제", label, ref count);
@@ -1242,11 +1236,8 @@ namespace WebNotifications
                 long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 var color = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(due, now));
                 var time = CampusScreenLayout.RemainingTime(due);
-                var background = GUI.backgroundColor;
-                GUI.backgroundColor = color;
-                bool clicked = GUILayout.Button(kind + " · " + title + "\n" + time +
-                    (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), touchButton);
-                GUI.backgroundColor = background;
+                bool clicked = CampusTheme.DeadlineButton(kind + " · " + title + "\n" + time +
+                    (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), color, touchButton);
                 if (clicked)
                 {
                     if (assignment) OpenAssignmentDetail(item);
@@ -1254,9 +1245,7 @@ namespace WebNotifications
                 }
                 if (assignment) continue;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
-                GUI.backgroundColor = color;
                 GUILayout.BeginVertical(GUI.skin.box);
-                GUI.backgroundColor = background;
                 GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? item.submitted ? "제출 완료" : "미제출 / 작성 중" : "제출 확인 필요" : ReadLabel(item)), label);
                 GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), label);
                 GUILayout.Label(time, label);
@@ -1418,12 +1407,11 @@ namespace WebNotifications
 
         public void Draw(GUIStyle label)
         {
-            if (touchButton == null) touchButton = new GUIStyle(GUI.skin.button);
+            if (touchButton == null)
+                touchButton = new GUIStyle(GUI.skin.button) { wordWrap = true, alignment = TextAnchor.MiddleLeft };
             touchButton.fontSize = Mathf.RoundToInt(12 * CampusScreenLayout.Scale);
-            touchButton.wordWrap = true;
-            touchButton.fixedHeight = 0;
-            touchButton.padding = new RectOffset(8, 8, Mathf.RoundToInt(8 * CampusScreenLayout.Scale), Mathf.RoundToInt(8 * CampusScreenLayout.Scale));
-            GUILayout.Label("과제 · 알림", label);
+            int padding = Mathf.RoundToInt(8 * CampusScreenLayout.Scale);
+            touchButton.padding = new RectOffset(Mathf.Max(14, padding), padding, padding, padding);
             DrawNotices(label);
             GUILayout.Label(courseworkStatus, label);
             GUILayout.Label(Status, label);

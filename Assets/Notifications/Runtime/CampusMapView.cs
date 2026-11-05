@@ -9,7 +9,6 @@ namespace WebNotifications
         private SmartleadWebView school;
         private NotificationDetailUI detail;
         private Texture2D map;
-        private GUIStyle button, hint;
         private float zoom = 1f;
         private Vector2 pan, previousPointer;
         private int fingerId = -1;
@@ -21,8 +20,9 @@ namespace WebNotifications
         private int suppressMarkerClicksUntil = -1;
         public bool CanSelectCourse => Time.frameCount > suppressMarkerClicksUntil;
         public bool IsMapVisible => IsCampusVisible;
-        private bool IsCampusVisible => school != null && school.IsAuthenticated && !school.IsSchoolPageVisible;
-        public static Rect Viewport => CampusScreenLayout.ContentArea;
+        private bool IsCampusVisible => school != null && school.IsAuthenticated && !school.IsSchoolPageVisible &&
+            (detail == null || detail.IsMapTabActive);
+        public static Rect Viewport => CampusScreenLayout.CampusArea;
 
         // Coordinates use the source image's top-left corner, independent of screen size.
         public Vector2 ImageToScreen(Vector2 normalized)
@@ -125,18 +125,7 @@ namespace WebNotifications
             lastImageSize = ImageSize;
         }
 
-        private Rect Controls
-        {
-            get
-            {
-                float s = CampusScreenLayout.Scale;
-                var area = Viewport;
-                return new Rect(area.xMax - 58 * s, area.y + 12 * s, 46 * s, 142 * s);
-            }
-        }
-        public bool IsControlPointer(Vector2 point) => Controls.Contains(point);
-        private bool CanStart(Vector2 point) => Viewport.Contains(point) && !IsControlPointer(point) &&
-            GetComponent<SmartleadCourseCubes>()?.BlocksMapPointer(point) != true;
+        private static bool CanStart(Vector2 point) => Viewport.Contains(point);
         private void TrackDrag(Vector2 point)
         {
             if ((point - gestureOrigin).sqrMagnitude > Mathf.Pow(8f * CampusScreenLayout.Scale, 2))
@@ -219,34 +208,28 @@ namespace WebNotifications
         private void OnGUI()
         {
             if (!IsCampusVisible || detail != null && detail.IsNotificationPanelOpen) return;
-            float s = CampusScreenLayout.Scale;
-            if (button == null)
-            {
-                button = new GUIStyle(GUI.skin.button);
-                hint = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.MiddleCenter, wordWrap = true };
-            }
-            button.fontSize = Mathf.RoundToInt(13 * s);
-            hint.fontSize = Mathf.RoundToInt(11 * s);
+            var previous = CampusTheme.Enter();
+            try { DrawMap(); }
+            finally { GUI.skin = previous; }
+        }
+
+        private void DrawMap()
+        {
             var area = Viewport;
-            var color = GUI.color;
-            GUI.color = new Color32(233, 239, 228, 255);
-            GUI.DrawTexture(area, Texture2D.whiteTexture);
-            GUI.color = color;
-            if (map == null) { GUI.Box(area, "캠퍼스 지도를 불러올 수 없습니다.", hint); return; }
+            CampusTheme.Fill(area, CampusTheme.MapGround);
+            if (map == null)
+            {
+                GUI.Box(area, "캠퍼스 지도를 불러올 수 없습니다.");
+                return;
+            }
             ClampPan();
             GUI.BeginGroup(area);
             var size = ImageSize;
             var origin = area.size * .5f + pan - size * .5f;
             GUI.DrawTexture(new Rect(origin, size), map, ScaleMode.StretchToFill, true);
             GUI.EndGroup();
+
             GetComponent<SmartleadCourseCubes>()?.DrawMapOverlay(this);
-            var controls = Controls;
-            if (GUI.Button(new Rect(controls.x, controls.y, controls.width, 44 * s), "+", button)) ZoomAt(1.35f, area.center);
-            if (GUI.Button(new Rect(controls.x, controls.y + 49 * s, controls.width, 44 * s), "−", button)) ZoomAt(1f / 1.35f, area.center);
-            if (GUI.Button(new Rect(controls.x, controls.y + 98 * s, controls.width, 44 * s), "전체", button))
-            { zoom = 1; pan = Vector2.zero; lastImageSize = ImageSize; ResetGesture(); SaveView(); }
-            GUI.Box(new Rect(area.x + 12 * s, area.yMax - 44 * s, area.width - 24 * s, 32 * s),
-                Application.isMobilePlatform ? "한 손가락으로 이동 · 두 손가락으로 확대/축소" : "드래그로 이동 · 마우스 휠로 확대/축소", hint);
         }
     }
 }

@@ -291,11 +291,11 @@ namespace WebNotifications
             if (filterButton == null) filterButton = new GUIStyle(GUI.skin.button) { wordWrap = true, richText = false };
             button.fontSize = Mathf.RoundToInt(12 * scale);
             filterButton.fontSize = Mathf.RoundToInt(12 * scale);
-            button.padding = new RectOffset(8, 8, 8, 8);
-            GUILayout.Label("학교 공지 · 로그인 없이 확인", label);
+            button.padding = new RectOffset(14, 10, 9, 9);
+            GUILayout.Label("한림대 공지 모아보기", CampusTheme.Heading);
             GUILayout.Label(Status, label);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(IsLoading ? "조회 중…" : "다시 확인", GUILayout.MinHeight(34 * scale))) Refresh();
+            if (GUILayout.Button(IsLoading ? "조회 중…" : "다시 확인", CampusTheme.Primary, GUILayout.MinHeight(34 * scale))) Refresh();
             if (GUILayout.Button(adding ? "추가 닫기" : "게시판 추가", GUILayout.MinHeight(34 * scale))) adding = !adding;
             GUILayout.EndHorizontal();
             if (adding)
@@ -354,19 +354,17 @@ namespace WebNotifications
                 if (applicationsOnly && !item.application_notice || hideCompleted && complete) continue;
                 count++;
                 if (count > visibleLimit) continue;
-                var color = GUI.backgroundColor;
-                if (item.deadline_at > 0 && item.application_start_at <= now && !complete)
-                    GUI.backgroundColor = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.deadline_at, now));
+                var deadline = item.deadline_at > 0 && item.application_start_at <= now && !complete
+                    ? CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.deadline_at, now)) : Color.white;
                 var schedule = UniversityNoticeDeadline.Summary(item, now);
-                if (GUILayout.Button((complete ? "완료 · " : item.is_read ? "읽음 · " : "● ") + item.title + "\n" + item.source_name + " · " + date.ToString("yyyy-MM-dd") +
-                    (schedule.Length > 0 ? "\n" + schedule : ""), button))
+                if (CampusTheme.DeadlineButton((complete ? "완료 · " : item.is_read ? "읽음 · " : "● ") + item.title + "\n" + item.source_name + " · " + date.ToString("yyyy-MM-dd") +
+                    (schedule.Length > 0 ? "\n" + schedule : ""), deadline, button))
                 {
                     selectedId = selectedId == item.id ? null : item.id;
                     item.is_read = true;
                     PlayerPrefs.SetInt("university-notice.read." + item.id, 1); PlayerPrefs.Save();
                     if (selectedId != null && item.detail_checked_at < DateTimeOffset.UtcNow.AddHours(-24).ToUnixTimeSeconds()) StartCoroutine(FetchDetail(item));
                 }
-                GUI.backgroundColor = color;
                 if (selectedId != item.id) continue;
                 GUILayout.BeginVertical(GUI.skin.box);
                 GUILayout.Label(item.message.Length > 0 ? item.message : "게시판에서 요약을 제공하지 않았습니다.", label);

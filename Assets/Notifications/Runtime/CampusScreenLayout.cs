@@ -58,13 +58,6 @@ namespace WebNotifications
                 default: return "마감 정보 없음";
             }
         }
-        public static void DeadlineStripe(Rect area, Color color)
-        {
-            var previous = GUI.color;
-            GUI.color = color;
-            GUI.DrawTexture(area, Texture2D.whiteTexture);
-            GUI.color = previous;
-        }
         public static int CompareDeadlines(long left, long right)
         {
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -86,6 +79,7 @@ namespace WebNotifications
         }
         public static float Scale => Mathf.Clamp(Screen.width / 390f, .8f, 3f);
         public static float HeaderHeight => 58f * Scale;
+        private static float NavigationHeight => 60f * Scale;
         public static Rect SafeArea
         {
             get
@@ -99,8 +93,24 @@ namespace WebNotifications
         {
             get
             {
-                var area = SafeArea;
+                var area = CampusArea;
                 return new Rect(area.x, area.y + HeaderHeight, area.width, Mathf.Max(1, area.height - HeaderHeight));
+            }
+        }
+        public static Rect CampusArea
+        {
+            get
+            {
+                var area = SafeArea;
+                return new Rect(area.x, area.y, area.width, Mathf.Max(1, area.height - NavigationHeight));
+            }
+        }
+        public static Rect NavigationArea
+        {
+            get
+            {
+                var area = SafeArea;
+                return new Rect(area.x, area.yMax - NavigationHeight, area.width, NavigationHeight);
             }
         }
         public static Rect CameraRect

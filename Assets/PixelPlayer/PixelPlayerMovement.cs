@@ -35,7 +35,7 @@ public class PixelPlayerMovement : MonoBehaviour
     {
         bool canMove = (school == null || school.IsAuthenticated && !school.IsSchoolPageVisible) &&
             (school == null || school.GetComponent<WebNotifications.CampusMapView>()?.IsMapVisible != true) &&
-            (detail == null || !detail.IsNotificationPanelOpen);
+            (detail == null || detail.IsMapTabActive && !detail.IsNotificationPanelOpen);
         mobileControlsActive = Application.isMobilePlatform && canMove;
         if (!canMove) return;
         float horizontal = 0f;

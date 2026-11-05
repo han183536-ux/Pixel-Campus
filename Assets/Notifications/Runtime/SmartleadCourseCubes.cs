@@ -111,14 +111,10 @@ namespace WebNotifications
         private readonly Dictionary<string, Course> courses = new Dictionary<string, Course>(StringComparer.Ordinal);
         private readonly List<Course> ordered = new List<Course>();
         private GameObject cubeRoot;
-        private bool visible = true, dragging;
-        private Vector2 scroll, touchStart;
-        private float touchScroll, contentHeight;
-        private int touchId = -1, suppressListClicksUntil = -1;
+        private bool visible = true;
         public int CourseCount => ordered.Count;
         private Camera previewCamera;
-        private bool listOpen;
-        private GUIStyle mapLabel, mapButton;
+        private GUIStyle mapLabel;
         private static string Compact(string value) => (value ?? "").Replace(" ", "").ToLowerInvariant();
         private static void AssignBuilding(Course course)
         {
@@ -165,7 +161,7 @@ namespace WebNotifications
                 return StringComparer.Ordinal.Compare(a.data.courseName, b.data.courseName);
             });
         }
-        public void Clear() { SetOverview(Array.Empty<CourseCubeNotice>()); scroll = Vector2.zero; listOpen = false; }
+        public void Clear() { SetOverview(Array.Empty<CourseCubeNotice>()); }
         public void SetVisible(bool value) { visible = value; if (cubeRoot != null) cubeRoot.SetActive(value); }
 
         private void CreateCube(Course course, string key)
@@ -235,20 +231,6 @@ namespace WebNotifications
             course.previewColor = color;
         }
 
-        private Rect ListToggle
-        {
-            get { var area = CampusMapView.Viewport; float s = CampusScreenLayout.Scale;
-                return new Rect(area.x + 12 * s, area.yMax - 86 * s, 124 * s, 36 * s); }
-        }
-        private Rect ListPanel
-        {
-            get { var area = CampusMapView.Viewport; float s = CampusScreenLayout.Scale;
-                float height = Mathf.Min(area.height * .65f, 460 * s);
-                return new Rect(area.x + 12 * s, area.yMax - 94 * s - height, area.width - 24 * s, height); }
-        }
-        public bool BlocksMapPointer(Vector2 point) => visible &&
-            (ListToggle.Contains(point) || listOpen && ListPanel.Contains(point));
-
         public void DrawMapOverlay(CampusMapView map)
         {
             var detail = GetComponent<NotificationDetailUI>();
@@ -256,14 +238,14 @@ namespace WebNotifications
             float s = CampusScreenLayout.Scale;
             if (mapLabel == null)
             {
-                mapLabel = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperCenter, wordWrap = true, richText = false };
-                mapButton = new GUIStyle(GUI.skin.button) { wordWrap = true, richText = false };
+                mapLabel = new GUIStyle(GUI.skin.box)
+                {
+                    alignment = TextAnchor.MiddleCenter, wordWrap = true, padding = new RectOffset(5, 5, 4, 4)
+                };
             }
             mapLabel.fontSize = Mathf.RoundToInt(11 * s);
-            mapButton.fontSize = Mathf.RoundToInt(12 * s);
             var area = CampusMapView.Viewport;
             bool allowClick = map.CanSelectCourse && (detail == null || !detail.SuppressCampusInput);
-            bool overlayPointer = BlocksMapPointer(Event.current.mousePosition) || map.IsControlPointer(Event.current.mousePosition);
             // Stable slots prevent deadline reordering from moving subjects between markers.
             var mapCourses = new List<Course>(ordered);
             mapCourses.Sort((a, b) => StringComparer.Ordinal.Compare(a.data.Key, b.data.Key));
@@ -293,7 +275,7 @@ namespace WebNotifications
                 var previousColor = GUI.color;
                 var end = new Vector2(point.x, tile.y + 23 * s);
                 var delta = end - anchor;
-                GUI.color = new Color32(25, 62, 94, 210);
+                GUI.color = CampusTheme.Green;
                 GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, anchor);
                 GUI.DrawTexture(new Rect(anchor.x, anchor.y, delta.magnitude, 2 * s), Texture2D.whiteTexture);
                 GUI.matrix = previousMatrix;
@@ -303,57 +285,14 @@ namespace WebNotifications
                     GUI.DrawTexture(new Rect(point.x - 23 * s, tile.y, 46 * s, 46 * s), course.preview);
                 string title = string.IsNullOrWhiteSpace(course.data.courseName) ? "과목 " + course.data.courseId : course.data.courseName;
                 GUI.Box(new Rect(tile.x, tile.y + 44 * s, tile.width, 50 * s), title + "\n" + course.data.DeadlineStatus.Trim(), mapLabel);
-                CampusScreenLayout.DeadlineStripe(new Rect(tile.x, tile.y + 44 * s, tile.width, 3 * s), course.data.DeadlineColor);
+                if (course.data.DeadlineColor != Color.white)
+                    CampusTheme.Fill(new Rect(tile.x + 10 * s, tile.y + 45 * s, tile.width - 20 * s, 3 * s), course.data.DeadlineColor);
                 bool enabled = GUI.enabled;
-                GUI.enabled = enabled && allowClick && !overlayPointer;
+                GUI.enabled = enabled && allowClick;
                 if (GUI.Button(tile, GUIContent.none, GUIStyle.none)) detail?.OpenCourseNotifications(course.data.Key, title);
                 GUI.enabled = enabled;
             }
             GUI.EndGroup();
-            if (GUI.Button(ListToggle, listOpen ? "과목 목록 닫기" : "전체 과목 · " + ordered.Count, mapButton))
-            { listOpen = !listOpen; scroll = Vector2.zero; }
-            if (!listOpen) return;
-            var panel = ListPanel;
-            GUI.Box(panel, GUIContent.none);
-            var listArea = new Rect(panel.x + 8 * s, panel.y + 8 * s, panel.width - 16 * s, panel.height - 16 * s);
-            var school = GetComponent<SmartleadWebView>();
-            float agendaTop = ordered.Count * 92 * s + 8 * s;
-            contentHeight = agendaTop + (school != null ? school.AgendaHeight : 0);
-            scroll = GUI.BeginScrollView(listArea, scroll, new Rect(0, 0, listArea.width - 18 * s, contentHeight));
-            bool wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && allowClick && !dragging && Time.frameCount > suppressListClicksUntil;
-            for (int index = 0; index < ordered.Count; index++)
-            {
-                var course = ordered[index];
-                var tile = new Rect(0, index * 92 * s, listArea.width - 18 * s, 86 * s);
-                if (GUI.Button(tile, course.data.courseName + " · " + (course.building ?? "건물 미지정") + "\n" + course.data.Summary, mapButton))
-                    detail?.OpenCourseNotifications(course.data.Key, course.data.courseName);
-                CampusScreenLayout.DeadlineStripe(new Rect(tile.x, tile.y, 3 * s, tile.height), course.data.DeadlineColor);
-            }
-            if (school != null) school.DrawUpcomingAgenda(new Rect(0, agendaTop, listArea.width - 18 * s, school.AgendaHeight));
-            GUI.enabled = wasEnabled;
-            GUI.EndScrollView();
-        }
-        private void Update()
-        {
-            var map = GetComponent<CampusMapView>();
-            var detail = GetComponent<NotificationDetailUI>();
-            if (!visible || map == null || !map.IsMapVisible || !listOpen ||
-                detail != null && (detail.IsNotificationPanelOpen || detail.SuppressCampusInput) || Input.touchCount != 1)
-            { touchId = -1; dragging = false; return; }
-            var touch = Input.GetTouch(0);
-            var point = new Vector2(touch.position.x, Screen.height - touch.position.y);
-            if (touch.phase == TouchPhase.Began && ListPanel.Contains(point))
-            { touchId = touch.fingerId; touchStart = point; touchScroll = scroll.y; dragging = false; }
-            if (touch.fingerId != touchId) return;
-            if ((point - touchStart).sqrMagnitude > Mathf.Pow(8 * CampusScreenLayout.Scale, 2)) dragging = true;
-            if (dragging)
-            {
-                scroll.y = Mathf.Clamp(touchScroll - point.y + touchStart.y, 0,
-                    Mathf.Max(0, contentHeight - ListPanel.height + 16 * CampusScreenLayout.Scale));
-                suppressListClicksUntil = Time.frameCount + 2;
-            }
-            if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled) { touchId = -1; dragging = false; }
         }
         private static void Release(UnityEngine.Object value) { if (value == null) return; if (Application.isPlaying) Destroy(value); else DestroyImmediate(value); }
         private static void ReleasePreview(Course course)

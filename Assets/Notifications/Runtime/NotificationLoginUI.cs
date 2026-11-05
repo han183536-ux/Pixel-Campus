@@ -33,7 +33,7 @@ namespace WebNotifications
         }
         public void Draw(GUIStyle label)
         {
-            GUILayout.Label("한림 SmartLEAD · 학교 계정", label);
+            GUILayout.Label("한림 SmartLEAD 계정", CampusTheme.Heading);
             if (manager.IsAuthenticated)
             {
                 GUILayout.Label("학교 계정 연결됨", label);
@@ -59,7 +59,7 @@ namespace WebNotifications
                 GUILayout.Label("비밀번호", label);
                 password = GUILayout.PasswordField(password, '●', 2048);
                 GUI.enabled = !busy && options != null && options.available && !string.IsNullOrWhiteSpace(username) && password.Length > 0;
-                if (GUILayout.Button(busy ? "학교 계정 확인 중…" : "학교 계정으로 로그인", GUILayout.Height(30)))
+                if (GUILayout.Button(busy ? "학교 계정 확인 중…" : "학교 계정으로 로그인", CampusTheme.Primary, GUILayout.MinHeight(34 * CampusScreenLayout.Scale)))
                     StartCoroutine(Login());
                 GUI.enabled = true;
                 GUILayout.Label("비밀번호는 저장하지 않습니다. 학교의 앱 로그인이 허용된 계정으로 이용하세요.", label);
