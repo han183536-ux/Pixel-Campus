@@ -1,35 +1,53 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; media-src https://smartlead.hallym.ac.kr; style-src 'unsafe-inline'; script-src 'nonce-__DOCUMENT_NONCE__'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; media-src https://smartlead.hallym.ac.kr; font-src data:; style-src 'unsafe-inline'; script-src 'nonce-__DOCUMENT_NONCE__'; base-uri 'none'; form-action 'none'">
 <style>
+__ASSIGNMENT_FONT_RULE__
+:root {
+  color-scheme:light;
+  --paper:#f2f3f8;
+  --ink:#161820;
+  --muted:#515867;
+  --line:#e0e3eb;
+  --accent:#0054b8;
+  --selection:#e4efff;
+  --radius:12px;
+}
 *{box-sizing:border-box}
-html,body{margin:0;background:#f3f7f1;color:#1d342b;font-family:'Malgun Gothic',system-ui,sans-serif;font-size:16px;line-height:1.65}
-main{padding:24px clamp(12px,5vw,32px) 56px;max-width:800px;margin:auto;overflow-wrap:anywhere}
-h1{font-size:clamp(24px,6vw,34px);line-height:1.35;margin:4px 0 20px}
-h2{font-size:22px;line-height:1.4;margin:24px 0 14px}
-h3{font-size:18px}
-p{margin:14px 0}
-article{padding:4px clamp(10px,4vw,24px) 12px;background:#fff;border:1px solid #becfc3;border-radius:8px}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:'Campus Document Sans',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,Roboto,'Noto Sans KR','Malgun Gothic',sans-serif;font-size:16px;line-height:1.65}
+main{padding:22px clamp(14px,5vw,32px) 0;max-width:760px;min-height:100vh;margin:auto;display:flex;flex-direction:column;word-break:keep-all;overflow-wrap:anywhere}
+h1{font-size:clamp(26px,7vw,34px);line-height:1.25;letter-spacing:-.025em;margin:4px 0 18px}
+h2{font-size:22px;line-height:1.35;margin:22px 0 12px}
+h3{font-size:18px;line-height:1.4}
+p{margin:12px 0}
+article{padding:4px clamp(12px,4vw,22px) 12px;background:#fff;border:1px solid var(--line);border-radius:var(--radius)}
+article *{font-family:inherit!important}
+article :is(code,pre,kbd,samp){font-family:ui-monospace,Consolas,monospace!important}
 img{max-width:100%!important;height:auto!important}
-table{border-collapse:collapse;width:100%!important;margin:20px 0;background:white;table-layout:fixed}
-th,td{border:1px solid #becfc3;padding:12px 10px;text-align:left;vertical-align:top;word-break:break-word;font-weight:normal}
-td:first-child,th:first-child{width:40%}
-tbody tr:nth-child(even){background:#f3f7f1}
-a{color:#25684e;text-decoration:none;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%!important;margin:16px 0;background:#fff;table-layout:fixed}
+th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top;word-break:break-word;font-weight:normal}
+th{color:var(--muted);font-weight:600}
+td:first-child,th:first-child{width:36%}
+tbody tr:nth-child(even){background:var(--paper)}
+a{color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
 a[href]{text-decoration:underline;cursor:pointer}
-a:focus-visible{outline:2px solid #25684e;outline-offset:3px}
-.submissionstatussubmitted{color:#25684e}
-.submissionnotgraded,.submissionstatusdraft{color:#a32929}
-.course{font-size:14px;color:#4b6458;margin-bottom:8px}
-.notice{padding:12px;background:#f3f7f1;border-radius:4px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.submissionstatussubmitted{color:#17633b;font-weight:600}
+.submissionnotgraded,.submissionstatusdraft{color:#9b2c2c}
+.course{font-size:14px;font-weight:600;color:var(--muted);margin-bottom:5px}
+.course:empty{display:none}
+.notice{padding:12px;background:var(--selection);border-radius:var(--radius)}
 pre{white-space:pre-wrap}
 ul,ol{padding-left:24px}
 #intro{margin-bottom:20px}
 .fileuploadsubmission,.introattachments{overflow-wrap:anywhere}
 button,input{display:none!important}
 video{display:block;width:100%;max-width:100%;height:auto;max-height:70vh;background:#000;margin:18px 0 6px}audio{display:block;width:100%;margin:18px 0 6px}.media-error{font-size:14px;color:#a32929}
-.submission-action{margin:0 0 24px}.submission-action a{display:inline-block;padding:10px 18px;border-radius:6px;background:#25684e;color:white;text-decoration:none}.submission-action p{font-size:14px;color:#4b6458;margin:8px 0}
-</style></head><body><main><div class="course">__COURSE_TITLE__</div><h1>__ASSIGNMENT_TITLE__</h1><div class="submission-action"><a id="assignment-submit" href="#submission">파일 첨부·제출</a><p>학교 제출 화면에서 파일을 선택하고 저장하세요.</p></div><article>__ASSIGNMENT_CONTENT__</article></main>
+.submission-action{position:sticky;bottom:0;z-index:10;margin-top:auto;padding:8px 0;background:var(--paper)}
+.submission-action a{display:block;min-height:44px;padding:11px 16px;border-radius:var(--radius);background:var(--accent);color:white;font-weight:600;text-align:center;text-decoration:none}
+.submission-action a:active{background:#004694}
+.submission-hint{font-size:14px;color:var(--muted);margin:12px 2px 4px}
+</style></head><body><main><div class="course">__COURSE_TITLE__</div><h1>__ASSIGNMENT_TITLE__</h1><article>__ASSIGNMENT_CONTENT__</article><p id="submission-hint" class="submission-hint">학교 제출 화면에서 파일을 선택하고 저장하세요.</p><div class="submission-action"><a id="assignment-submit" href="#submission" aria-describedby="submission-hint">파일 첨부·제출</a></div></main>
 <script nonce="__DOCUMENT_NONCE__">
 document.addEventListener('click',function(event){const link=event.target.closest('a[href]');if(!link)return;event.preventDefault();const kind=link===document.getElementById('assignment-submit')?'assignment_submission':'assignment_attachment';const packet=JSON.stringify({kind,nonce:'__DOCUMENT_NONCE__',url:kind==='assignment_attachment'?link.href:''});if(window.Unity&&typeof window.Unity.call==='function')window.Unity.call(packet);else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(packet);});
 document.querySelectorAll('video,audio').forEach(function(player){player.addEventListener('error',function(){if(player.nextElementSibling&&player.nextElementSibling.className==='media-error')return;const message=document.createElement('p');message.className='media-error';message.textContent='영상을 재생하지 못했습니다. 영상 파일 열기를 눌러 확인하거나 학교 로그인 후 새로고침해 주세요.';player.after(message);});});

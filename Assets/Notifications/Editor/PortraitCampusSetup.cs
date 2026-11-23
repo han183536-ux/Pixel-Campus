@@ -4,6 +4,7 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace WebNotifications.Editor
 {
@@ -11,10 +12,24 @@ namespace WebNotifications.Editor
     public static class PortraitCampusSetup
     {
         private const string PreviewSessionKey = "PixelCampus.PortraitPreviewApplied";
+        private const string DemoScenePath = "Assets/Scenes/NotificationDemo.unity";
+        private const int PortraitWidth = 540;
+        private const int PortraitHeight = 960;
+        private const BindingFlags InstanceMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
         static PortraitCampusSetup()
         {
             EditorApplication.delayCall += InitializePreview;
+            EditorApplication.playModeStateChanged += PreparePlayPreview;
+        }
+
+        private static void PreparePlayPreview(PlayModeStateChange state)
+        {
+            if (Application.isBatchMode || state != PlayModeStateChange.ExitingEditMode) return;
+
+            var startScene = EditorSceneManager.playModeStartScene;
+            var scenePath = startScene == null ? SceneManager.GetActiveScene().path : AssetDatabase.GetAssetPath(startScene);
+            if (scenePath == DemoScenePath) SelectPortraitPreview();
         }
 
         public sealed class PortraitBuildTargetChanged : IActiveBuildTargetChanged
@@ -46,12 +61,12 @@ namespace WebNotifications.Editor
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
             PlayerSettings.allowedAutorotateToLandscapeLeft = false;
             PlayerSettings.allowedAutorotateToLandscapeRight = false;
-            PlayerSettings.defaultScreenWidth = 540;
-            PlayerSettings.defaultScreenHeight = 960;
+            PlayerSettings.defaultScreenWidth = PortraitWidth;
+            PlayerSettings.defaultScreenHeight = PortraitHeight;
             PlayerSettings.defaultIsNativeResolution = false;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.resizableWindow = true;
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/NotificationDemo.unity", true) };
+            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(DemoScenePath, true) };
             AssetDatabase.SaveAssets();
             SelectPortraitPreview();
         }
@@ -62,7 +77,7 @@ namespace WebNotifications.Editor
             if (EditorApplication.isPlaying) throw new InvalidOperationException("Stop Play before opening the demo.");
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Apply();
-            EditorSceneManager.OpenScene("Assets/Scenes/NotificationDemo.unity");
+            EditorSceneManager.OpenScene(DemoScenePath);
         }
 
         private static void SelectPortraitPreview()
@@ -77,24 +92,39 @@ namespace WebNotifications.Editor
             var builtinCount = (int)groupClass.GetMethod("GetBuiltinCount").Invoke(group, null);
             var customCount = (int)groupClass.GetMethod("GetCustomCount").Invoke(group, null);
             var sizeClass = editorAssembly.GetType("UnityEditor.GameViewSize");
+            var sizeType = editorAssembly.GetType("UnityEditor.GameViewSizeType");
+            var fixedResolution = Enum.Parse(sizeType, "FixedResolution");
             var getSize = groupClass.GetMethod("GetGameViewSize");
+            var getWidth = sizeClass.GetProperty("width");
+            var getHeight = sizeClass.GetProperty("height");
+            var getSizeType = sizeClass.GetProperty("sizeType");
             int selected = -1;
             for (int index = 0; index < builtinCount + customCount; index++)
             {
                 var size = getSize.Invoke(group, new object[] { index });
-                if ((int)sizeClass.GetProperty("width").GetValue(size) == 540 &&
-                    (int)sizeClass.GetProperty("height").GetValue(size) == 960) { selected = index; break; }
+                if ((int)getWidth.GetValue(size) == PortraitWidth &&
+                    (int)getHeight.GetValue(size) == PortraitHeight && Equals(getSizeType.GetValue(size), fixedResolution))
+                {
+                    selected = index;
+                    break;
+                }
             }
             if (selected < 0)
             {
-                var sizeType = editorAssembly.GetType("UnityEditor.GameViewSizeType");
-                var size = Activator.CreateInstance(sizeClass, Enum.Parse(sizeType, "FixedResolution"), 540, 960, "Pixel Campus Portrait");
+                var size = Activator.CreateInstance(sizeClass, fixedResolution, PortraitWidth, PortraitHeight, "Pixel Campus Portrait");
                 groupClass.GetMethod("AddCustomSize").Invoke(group, new[] { size });
                 selected = builtinCount + customCount;
             }
             var gameViewType = editorAssembly.GetType("UnityEditor.GameView");
             var gameView = EditorWindow.GetWindow(gameViewType);
-            gameViewType.GetProperty("selectedSizeIndex", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).SetValue(gameView, selected);
+            // Match a toolbar selection so the render target and zoom are recalculated together.
+            var current = (int)gameViewType.GetProperty("selectedSizeIndex", InstanceMembers).GetValue(gameView);
+            if (current == selected)
+                gameViewType.GetMethod("UpdateZoomAreaAndParent", InstanceMembers).Invoke(gameView, null);
+            else
+                gameViewType.GetMethod("SizeSelectionCallback", InstanceMembers).Invoke(gameView, new object[] { selected, null });
+            var fitScale = (float)gameViewType.GetProperty("minScale", InstanceMembers).GetValue(gameView);
+            gameViewType.GetMethod("SnapZoom", InstanceMembers).Invoke(gameView, new object[] { fitScale });
             gameView.Repaint();
         }
     }

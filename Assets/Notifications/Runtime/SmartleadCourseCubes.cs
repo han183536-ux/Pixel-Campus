@@ -105,15 +105,12 @@ namespace WebNotifications
             public Material material;
             public string building;
             public Vector2 mapPosition;
-            public RenderTexture preview;
-            public Color previewColor;
         }
         private readonly Dictionary<string, Course> courses = new Dictionary<string, Course>(StringComparer.Ordinal);
         private readonly List<Course> ordered = new List<Course>();
         private GameObject cubeRoot;
         private bool visible = true;
         public int CourseCount => ordered.Count;
-        private Camera previewCamera;
         private GUIStyle mapLabel;
         private static string Compact(string value) => (value ?? "").Replace(" ", "").ToLowerInvariant();
         private static void AssignBuilding(Course course)
@@ -122,11 +119,11 @@ namespace WebNotifications
             string code = course.data.courseCode ?? "";
             if (name.Contains("게임프로그래밍") || name.Contains("3차원모델링") || name.Contains("3d모델링") ||
                 name.Contains("캡스톤") || code.StartsWith("603103-") || code.StartsWith("601104-") || code.StartsWith("603147-"))
-            { course.building = "공학관"; course.mapPosition = new Vector2(.175f, .35f); }
+            { course.building = "공학관"; course.mapPosition = new Vector2(.181f, .402f); }
             else if (name.Contains("커리어잉글") || name.Contains("careerenglish") || code.StartsWith("903180-"))
-            { course.building = "기초교육관"; course.mapPosition = new Vector2(.445f, .035f); }
+            { course.building = "기초교육관"; course.mapPosition = new Vector2(.393f, .121f); }
             else if (name.Contains("일본문화콘텐츠") || code.StartsWith("903190-"))
-            { course.building = "자연과학관"; course.mapPosition = new Vector2(.345f, .445f); }
+            { course.building = "자연과학관"; course.mapPosition = new Vector2(.317f, .500f); }
             else course.building = null;
         }
 
@@ -179,77 +176,30 @@ namespace WebNotifications
             course.cube.SetActive(false);
         }
 
-        private void EnsureMapPreview(Course course)
-        {
-            int pixels = Mathf.Clamp(Mathf.CeilToInt(64 * CampusScreenLayout.Scale), 64, 256);
-            Color color = course.data.DeadlineColor;
-            if (course.preview != null && course.preview.IsCreated() && course.preview.width == pixels && course.previewColor == color) return;
-            if (previewCamera == null)
-            {
-                var cameraObject = new GameObject("Course Cube Preview Camera");
-                cameraObject.transform.SetParent(transform, false);
-                previewCamera = cameraObject.AddComponent<Camera>();
-                previewCamera.enabled = false;
-                previewCamera.orthographic = true;
-                previewCamera.orthographicSize = .95f;
-                previewCamera.nearClipPlane = .1f;
-                previewCamera.farClipPlane = 20;
-                previewCamera.clearFlags = CameraClearFlags.SolidColor;
-                previewCamera.backgroundColor = Color.clear;
-                previewCamera.cullingMask = 1 << 31;
-                previewCamera.transform.position = new Vector3(10000, 10000, -8);
-                var lightObject = new GameObject("Course Cube Preview Light");
-                lightObject.transform.SetParent(cameraObject.transform, false);
-                lightObject.transform.rotation = Quaternion.Euler(35, -35, 0);
-                var light = lightObject.AddComponent<Light>();
-                light.type = LightType.Directional;
-                light.cullingMask = 1 << 31;
-                light.intensity = 1.2f;
-            }
-            if (course.preview == null || course.preview.width != pixels)
-            {
-                ReleasePreview(course);
-                course.preview = new RenderTexture(pixels, pixels, 16, RenderTextureFormat.ARGB32) { name = "Course Cube Icon" };
-                course.preview.Create();
-            }
-            course.material.color = color;
-            if (!course.preview.IsCreated()) course.preview.Create();
-            course.cube.layer = 31;
-            course.cube.transform.position = new Vector3(10000, 10000, 0);
-            course.cube.transform.localScale = Vector3.one;
-            course.cube.transform.rotation = Quaternion.Euler(20, 32, 0);
-            var previous = RenderTexture.active;
-            previewCamera.targetTexture = course.preview;
-            course.cube.SetActive(true);
-            try { previewCamera.Render(); }
-            finally
-            {
-                course.cube.SetActive(false);
-                previewCamera.targetTexture = null;
-                RenderTexture.active = previous;
-            }
-            course.previewColor = color;
-        }
-
         public void DrawMapOverlay(CampusMapView map)
         {
             var detail = GetComponent<NotificationDetailUI>();
             if (!visible || !map.IsMapVisible || detail != null && detail.IsNotificationPanelOpen) return;
             float s = CampusScreenLayout.Scale;
+            bool compact = map.IsOverview;
+            float tileWidth = (compact ? 44 : 86) * s;
+            float tileHeight = (compact ? 44 : 80) * s;
+            float slotSpacing = tileWidth + 8 * s;
             if (mapLabel == null)
             {
                 mapLabel = new GUIStyle(GUI.skin.box)
                 {
-                    alignment = TextAnchor.MiddleCenter, wordWrap = true, padding = new RectOffset(5, 5, 4, 4)
+                    alignment = TextAnchor.MiddleCenter, wordWrap = true, padding = new RectOffset(5, 5, 3, 3)
                 };
             }
             mapLabel.fontSize = Mathf.RoundToInt(11 * s);
-            var area = CampusMapView.Viewport;
+            // Keep marker hit targets in the safe area above the floating navigation.
+            var area = CampusScreenLayout.CampusArea;
             bool allowClick = map.CanSelectCourse && (detail == null || !detail.SuppressCampusInput);
             // Stable slots prevent deadline reordering from moving subjects between markers.
             var mapCourses = new List<Course>(ordered);
             mapCourses.Sort((a, b) => StringComparer.Ordinal.Compare(a.data.Key, b.data.Key));
-            var occupied = new List<Rect>();
+            var markers = new List<(Course course, Rect tile)>();
             GUI.BeginGroup(area);
             foreach (var course in mapCourses)
             {
@@ -259,49 +209,56 @@ namespace WebNotifications
                     if (other.building == course.building) { if (other == course) slot = count; count++; }
                 var anchor = map.ImageToScreen(course.mapPosition) - area.position;
                 if (!new Rect(Vector2.zero, area.size).Contains(anchor)) continue;
-                float groupHalfWidth = (count * 108 - 6) * s * .5f;
+                float groupHalfWidth = (count * slotSpacing - 8 * s) * .5f;
                 float centerX = area.width >= groupHalfWidth * 2
                     ? Mathf.Clamp(anchor.x, groupHalfWidth, area.width - groupHalfWidth) : anchor.x;
-                var point = new Vector2(centerX + (slot - (count - 1) * .5f) * 108 * s, anchor.y);
-                var tile = new Rect(point.x - 51 * s, point.y - 36 * s, 102 * s, 94 * s);
+                float x = centerX + (slot - (count - 1) * .5f) * slotSpacing;
+                var tile = new Rect(x - tileWidth * .5f, anchor.y - (compact ? 22 : 31) * s, tileWidth, tileHeight);
                 // At overview zoom, neighboring buildings are closer than readable cards.
                 // Keep a connector to the true building while separating overlapping cards.
-                foreach (var placed in occupied)
-                    if (tile.Overlaps(placed)) { tile.y = placed.yMax + 6 * s; }
-                occupied.Add(tile);
-                point.y = tile.y + 36 * s;
-                if (!new Rect(point.x - 23 * s, tile.y, 46 * s, 46 * s).Overlaps(new Rect(Vector2.zero, area.size))) continue;
+                foreach (var placed in markers)
+                    if (tile.Overlaps(placed.tile)) { tile.y = placed.tile.yMax + 6 * s; }
+                if (!tile.Overlaps(new Rect(Vector2.zero, area.size))) continue;
+                markers.Add((course, tile));
                 var previousMatrix = GUI.matrix;
                 var previousColor = GUI.color;
-                var end = new Vector2(point.x, tile.y + 23 * s);
+                var end = new Vector2(tile.center.x, tile.y + (compact ? 22 : 29) * s);
                 var delta = end - anchor;
-                GUI.color = CampusTheme.Green;
+                GUI.color = CampusTheme.Accent;
                 GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, anchor);
                 GUI.DrawTexture(new Rect(anchor.x, anchor.y, delta.magnitude, 2 * s), Texture2D.whiteTexture);
                 GUI.matrix = previousMatrix;
                 GUI.color = previousColor;
-                if (Event.current.type == EventType.Repaint) EnsureMapPreview(course);
-                if (course.preview != null)
-                    GUI.DrawTexture(new Rect(point.x - 23 * s, tile.y, 46 * s, 46 * s), course.preview);
+            }
+            // Draw every connector behind the markers, including shared-building links.
+            foreach (var (course, tile) in markers)
+            {
                 string title = string.IsNullOrWhiteSpace(course.data.courseName) ? "과목 " + course.data.courseId : course.data.courseName;
-                GUI.Box(new Rect(tile.x, tile.y + 44 * s, tile.width, 50 * s), title + "\n" + course.data.DeadlineStatus.Trim(), mapLabel);
-                if (course.data.DeadlineColor != Color.white)
-                    CampusTheme.Fill(new Rect(tile.x + 10 * s, tile.y + 45 * s, tile.width - 20 * s, 3 * s), course.data.DeadlineColor);
+                int notices = course.data.notifications + course.data.messages;
+                float iconScale = compact ? .78f * s : s;
+                float iconSize = 38 * iconScale;
+                var icon = new Rect(tile.center.x - iconSize * .5f, tile.y + (compact ? 7 : 9) * s, iconSize, iconSize);
+                CampusTheme.DrawNoticeIcon(icon, notices, iconScale, notices > 0 ? CampusTheme.Accent : CampusTheme.Muted);
+                if (!compact)
+                {
+                    GUI.Box(new Rect(tile.x, tile.y + 47 * s, tile.width, 33 * s), title, mapLabel);
+                    if (course.data.DeadlineColor != Color.white)
+                        CampusTheme.Fill(new Rect(tile.x + 16 * s, tile.y + 47 * s, tile.width - 32 * s, 2 * s), course.data.DeadlineColor);
+                }
                 bool enabled = GUI.enabled;
-                GUI.enabled = enabled && allowClick;
-                if (GUI.Button(tile, GUIContent.none, GUIStyle.none)) detail?.OpenCourseNotifications(course.data.Key, title);
+                var screenTile = new Rect(tile.position + area.position, tile.size);
+                GUI.enabled = enabled && allowClick && !screenTile.Overlaps(CampusMapView.ZoomControlsRect);
+                var marker = new GUIContent("", title + " · " + course.data.Summary.Replace("\n", " "));
+                if (GUI.Button(tile, marker, GUIStyle.none)) detail?.OpenCourseNotifications(course.data.Key, title);
                 GUI.enabled = enabled;
             }
             GUI.EndGroup();
         }
         private static void Release(UnityEngine.Object value) { if (value == null) return; if (Application.isPlaying) Destroy(value); else DestroyImmediate(value); }
-        private static void ReleasePreview(Course course)
-        { if (course.preview != null) { course.preview.Release(); Release(course.preview); course.preview = null; } }
-        private static void ReleaseCourse(Course course) { ReleasePreview(course); Release(course.cube); Release(course.material); }
+        private static void ReleaseCourse(Course course) { Release(course.cube); Release(course.material); }
         private void OnDestroy()
         {
             foreach (var course in ordered) ReleaseCourse(course);
-            if (previewCamera != null) Release(previewCamera.gameObject);
             Release(cubeRoot);
         }
     }

@@ -5,10 +5,14 @@ namespace WebNotifications
     /// <summary>Offline campus image with pointer-anchored zoom and bounded panning.</summary>
     public sealed class CampusMapView : MonoBehaviour
     {
-        private const string ViewKey = "PixelCampus.MapView.";
+        private const string ViewKey = "PixelCampus.MapView.FullCampus.";
         private SmartleadWebView school;
         private NotificationDetailUI detail;
         private Texture2D map;
+        private RenderTexture blurredMap;
+        private Material blurMaterial;
+        private bool blurUnavailable;
+        private static readonly int BlurStep = Shader.PropertyToID("_BlurStep");
         private float zoom = 1f;
         private Vector2 pan, previousPointer;
         private int fingerId = -1;
@@ -19,15 +23,35 @@ namespace WebNotifications
         private Vector2 gestureOrigin;
         private int suppressMarkerClicksUntil = -1;
         public bool CanSelectCourse => Time.frameCount > suppressMarkerClicksUntil;
+        internal bool IsOverview => zoom <= 1.05f;
         public bool IsMapVisible => IsCampusVisible;
-        private bool IsCampusVisible => school != null && school.IsAuthenticated && !school.IsSchoolPageVisible &&
-            (detail == null || detail.IsMapTabActive);
-        public static Rect Viewport => CampusScreenLayout.CampusArea;
+        private bool IsCampusVisible => school != null && (detail != null ? detail.ShowsMapBackdrop(school) :
+            school.IsAuthenticated && !school.IsSchoolPageVisible);
+        public static Rect Viewport => new Rect(0, 0, Screen.width, Screen.height);
+        private static Rect FitArea
+        {
+            get
+            {
+                var area = CampusScreenLayout.CampusArea;
+                float inset = 10 * CampusScreenLayout.Scale;
+                return new Rect(area.x + inset, area.y + inset, Mathf.Max(1, area.width - 2 * inset),
+                    Mathf.Max(1, area.height - 2 * inset));
+            }
+        }
+        internal static Rect ZoomControlsRect
+        {
+            get
+            {
+                var area = CampusScreenLayout.CampusArea;
+                float scale = Mathf.Min(CampusScreenLayout.Scale, area.height / 170);
+                return new Rect(area.xMax - 64 * scale, area.yMax - 156 * scale, 52 * scale, 146 * scale);
+            }
+        }
 
         // Coordinates use the source image's top-left corner, independent of screen size.
         public Vector2 ImageToScreen(Vector2 normalized)
         {
-            return Viewport.center + pan + Vector2.Scale(normalized - Vector2.one * .5f, ImageSize);
+            return FitArea.center + pan + Vector2.Scale(normalized - Vector2.one * .5f, ImageSize);
         }
 
         private void Awake()
@@ -42,7 +66,7 @@ namespace WebNotifications
             get
             {
                 if (map == null) return Vector2.one;
-                var area = Viewport;
+                var area = FitArea;
                 float fit = Mathf.Min(area.width / map.width, area.height / map.height);
                 return new Vector2(map.width, map.height) * fit * zoom;
             }
@@ -50,16 +74,25 @@ namespace WebNotifications
 
         private void ClampPan()
         {
-            var excess = Vector2.Max(Vector2.zero, (ImageSize - Viewport.size) * .5f);
-            pan.x = Mathf.Clamp(pan.x, -excess.x, excess.x);
-            pan.y = Mathf.Clamp(pan.y, -excess.y, excess.y);
+            var size = ImageSize;
+            var center = FitArea.center;
+            var view = Viewport;
+            pan.x = ClampPanAxis(pan.x, center.x, size.x, view.width);
+            pan.y = ClampPanAxis(pan.y, center.y, size.y, view.height);
+        }
+
+        private static float ClampPanAxis(float offset, float center, float imageSize, float viewSize)
+        {
+            float halfImage = imageSize * .5f;
+            if (imageSize <= viewSize)
+                return Mathf.Clamp(0, halfImage - center, viewSize - center - halfImage);
+            return Mathf.Clamp(offset, viewSize - center - halfImage, halfImage - center);
         }
 
         private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
 
         private void InitializeView()
         {
-            var fitSize = ImageSize;
             float storedZoom = PlayerPrefs.GetFloat(ViewKey + "Zoom", 0);
             float x = PlayerPrefs.GetFloat(ViewKey + "PanX", 0);
             float y = PlayerPrefs.GetFloat(ViewKey + "PanY", 0);
@@ -69,14 +102,20 @@ namespace WebNotifications
                 var size = ImageSize;
                 pan = new Vector2(Mathf.Clamp(x, -.5f, .5f) * size.x, Mathf.Clamp(y, -.5f, .5f) * size.y);
             }
-            else
-            {
-                // Fill the viewport only on the first visit; later visits restore the saved view.
-                zoom = Mathf.Clamp(Mathf.Max(Viewport.width / fitSize.x, Viewport.height / fitSize.y), 1f, 8f);
-            }
             initialized = true;
             lastImageSize = ImageSize;
             ClampPan();
+            SaveView();
+        }
+
+        internal void ShowEntireMap()
+        {
+            if (map == null) return;
+            if (!initialized) InitializeView();
+            ResetGesture();
+            zoom = 1f;
+            pan = Vector2.zero;
+            lastImageSize = ImageSize;
             SaveView();
         }
 
@@ -118,14 +157,15 @@ namespace WebNotifications
         private void ZoomAt(float factor, Vector2 position)
         {
             float next = Mathf.Clamp(zoom * factor, 1f, 8f);
-            var anchor = position - Viewport.center;
+            var anchor = position - FitArea.center;
             pan = anchor - (anchor - pan) * (next / zoom);
             zoom = next;
             ClampPan();
             lastImageSize = ImageSize;
         }
 
-        private static bool CanStart(Vector2 point) => Viewport.Contains(point);
+        private static bool CanStart(Vector2 point) => Viewport.Contains(point) &&
+            !CampusScreenLayout.NavigationArea.Contains(point) && !ZoomControlsRect.Contains(point);
         private void TrackDrag(Vector2 point)
         {
             if ((point - gestureOrigin).sqrMagnitude > Mathf.Pow(8f * CampusScreenLayout.Scale, 2))
@@ -140,12 +180,11 @@ namespace WebNotifications
 
         private void Update()
         {
-            if (!IsMapVisible || map == null || detail != null && (detail.IsNotificationPanelOpen || detail.SuppressCampusInput))
+            if (!IsMapVisible || map == null)
             { ResetGesture(); return; }
-            if (!initialized)
-            {
-                InitializeView();
-            }
+            if (!initialized) InitializeView();
+            if (detail != null && (detail.IsNotificationPanelOpen || detail.SuppressCampusInput))
+            { ResetGesture(); return; }
             ClampPan();
             if (Input.touchCount >= 2)
             {
@@ -207,10 +246,12 @@ namespace WebNotifications
 
         private void OnGUI()
         {
-            if (!IsCampusVisible || detail != null && detail.IsNotificationPanelOpen) return;
+            if (!IsCampusVisible) return;
             var previous = CampusTheme.Enter();
+            int depth = GUI.depth;
+            GUI.depth = 10;
             try { DrawMap(); }
-            finally { GUI.skin = previous; }
+            finally { GUI.depth = depth; GUI.skin = previous; }
         }
 
         private void DrawMap()
@@ -225,11 +266,92 @@ namespace WebNotifications
             ClampPan();
             GUI.BeginGroup(area);
             var size = ImageSize;
-            var origin = area.size * .5f + pan - size * .5f;
-            GUI.DrawTexture(new Rect(origin, size), map, ScaleMode.StretchToFill, true);
+            var origin = FitArea.center - area.position + pan - size * .5f;
+            if (Event.current.type == EventType.Repaint)
+            {
+                bool dimmed = detail != null && detail.IsNotificationPanelOpen;
+                bool hasMargins = size.x < area.width - 1 || size.y < area.height - 1;
+                var blur = dimmed || hasMargins ? GetBlurredMap() : null;
+                if (hasMargins && blur != null)
+                {
+                    var backdrop = new Rect(Vector2.zero, area.size);
+                    GUI.DrawTexture(backdrop, blur, ScaleMode.ScaleAndCrop, false);
+                    CampusTheme.Fill(backdrop, new Color(.13f, .19f, .19f, .60f));
+                }
+                GUI.DrawTexture(new Rect(origin, size), dimmed && blur != null ? (Texture)blur : map,
+                    ScaleMode.StretchToFill, true);
+            }
             GUI.EndGroup();
 
             GetComponent<SmartleadCourseCubes>()?.DrawMapOverlay(this);
+            if (detail == null || !detail.IsNotificationPanelOpen) DrawZoomControls();
+        }
+
+        private void DrawZoomControls()
+        {
+            var panel = ZoomControlsRect;
+            float scale = panel.width / 52;
+            GUI.Box(panel, GUIContent.none, CampusTheme.GlassNavigation);
+            var button = new Rect(panel.x + 4 * scale, panel.y + 4 * scale, 44 * scale, 44 * scale);
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && zoom < 8f;
+            if (GUI.Button(button, new GUIContent("+", "지도 확대"), CampusTheme.NavigationSelected))
+                ZoomAt(1.6f, FitArea.center);
+            button.y += 47 * scale;
+            GUI.enabled = enabled && zoom > 1f;
+            if (GUI.Button(button, new GUIContent("−", "지도 축소"), CampusTheme.NavigationSelected))
+                ZoomAt(1f / 1.6f, FitArea.center);
+            button.y += 47 * scale;
+            GUI.enabled = enabled;
+            if (GUI.Button(button, new GUIContent("전체", "전체 캠퍼스 보기"), CampusTheme.Navigation))
+                ShowEntireMap();
+        }
+
+        private RenderTexture GetBlurredMap()
+        {
+            if (blurUnavailable) return null;
+            if (blurredMap != null && blurredMap.IsCreated()) return blurredMap;
+            if (blurMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("CampusMapBlur");
+                if (shader == null || !shader.isSupported) { blurUnavailable = true; return null; }
+                blurMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+            }
+            int width = Mathf.Min(map.width, 720);
+            int height = Mathf.Max(1, Mathf.RoundToInt((float)map.height / map.width * width));
+            if (blurredMap == null)
+                blurredMap = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32)
+                {
+                    name = "Campus Map Backdrop",
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+            if (!blurredMap.Create()) { blurUnavailable = true; return null; }
+
+            var active = RenderTexture.active;
+            var horizontal = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            try
+            {
+                horizontal.filterMode = FilterMode.Bilinear;
+                horizontal.wrapMode = TextureWrapMode.Clamp;
+                blurMaterial.SetVector(BlurStep, new Vector4(1.7f / width, 0, 0, 0));
+                Graphics.Blit(map, horizontal, blurMaterial);
+                blurMaterial.SetVector(BlurStep, new Vector4(0, 1.7f / height, 0, 0));
+                Graphics.Blit(horizontal, blurredMap, blurMaterial);
+            }
+            finally
+            {
+                RenderTexture.active = active;
+                RenderTexture.ReleaseTemporary(horizontal);
+            }
+            return blurredMap;
+        }
+
+        private void OnDestroy()
+        {
+            if (blurredMap != null) { blurredMap.Release(); Destroy(blurredMap); }
+            if (blurMaterial != null) Destroy(blurMaterial);
         }
     }
 }

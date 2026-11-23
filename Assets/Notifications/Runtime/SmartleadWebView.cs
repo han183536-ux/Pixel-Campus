@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Gree.UnityWebView;
 using UnityEngine;
 
@@ -16,6 +17,7 @@ namespace WebNotifications
         private const string SavedIdKey = "smartlead.saved-id";
         private const string AutomaticLoginKey = "smartlead.automatic-login";
         private const string RequirePasswordKey = "smartlead.require-password";
+        private const string LoginPrompt = "로그인하면 지도를 볼 수 있습니다.";
         private readonly Dictionary<string, string> loginMessagePages = new Dictionary<string, string>();
         private bool RequiresPassword => PlayerPrefs.GetInt(RequirePasswordKey, 0) == 1;
         private string pendingUsername, pendingPassword;
@@ -24,6 +26,20 @@ namespace WebNotifications
         private float logoutDeadline;
         [Serializable] private class LoginSettings { public string nonce, username, password; public bool remember, automatic, autoSubmit, secureStorageAvailable, requirePasswordEntry; }
         [Serializable] private class DetailRequest { public string requestId; public Notice item; }
+        [Serializable] private sealed class OutlineRequest { public string requestId; public int courseId; }
+        [Serializable] private sealed class OutlineActivity { public string title, body, url, format, fileName; }
+        [Serializable] private sealed class OutlineWeek { public string key, title, body; public OutlineActivity[] activities; }
+        [Serializable] private sealed class CourseOutline { public OutlineWeek[] weeks; public bool partial; }
+        private readonly Dictionary<int, CourseOutline> courseOutlines = new Dictionary<int, CourseOutline>();
+        private readonly HashSet<string> expandedWeeks = new HashSet<string>();
+        private OutlineRequest outlineRequest;
+        private string[] outlineParts;
+        private float outlineDeadline;
+        private int outlineCourseId;
+        private bool showCourseOutline, outlineFailed;
+        private OutlineActivity selectedOutlineActivity;
+        private string selectedOutlineWeekTitle;
+        internal bool IsOutlineActivityOpen => selectedOutlineActivity != null;
         private bool showSubmittedAssignments;
         private WebViewObject assignmentView;
         private bool assignmentVisible, assignmentAttachmentVisible;
@@ -34,13 +50,31 @@ namespace WebNotifications
         private Notice assignmentDocumentTarget;
         private string assignmentDocumentRequest, assignmentDocumentNonce, assignmentDocumentHtml;
         private string pendingAssignmentHtml;
+        private const int AssignmentCacheLimit = 8;
+        private const float AssignmentCacheSeconds = 120;
+        private readonly Dictionary<string, (string body, float receivedAt)> assignmentCache =
+            new Dictionary<string, (string body, float receivedAt)>(StringComparer.Ordinal);
+        private static string assignmentFontRule;
+        private const int MaxDocumentCharsWithEmbeddedFont = 400_000;
         public string AssignmentRenderStatus { get; private set; }
         private float assignmentRendererDeadline;
         private string[] assignmentDocumentParts;
         private float assignmentDocumentDeadline;
         public bool IsAssignmentDetailVisible => assignmentVisible;
         public bool IsAssignmentSubmissionVisible => assignmentSubmissionVisible;
-        public string AssignmentDetailTitle => assignmentSubmissionVisible ? "과제 파일 첨부·제출" : assignmentAttachmentVisible ? "과제 첨부파일" : assignmentDocumentTarget?.title ?? "과제 상세";
+        public string AssignmentDetailTitle => assignmentSubmissionVisible ? "과제 파일 첨부·제출" :
+            assignmentAttachmentVisible ? "과제 첨부파일" : "과제 상세";
+        public string AssignmentCourseName
+        {
+            get
+            {
+                if (assignmentDocumentTarget == null) return "";
+                if (!string.IsNullOrWhiteSpace(assignmentDocumentTarget.courseName))
+                    return assignmentDocumentTarget.courseName.Trim();
+                return enrolledCourses.TryGetValue(assignmentDocumentTarget.courseId, out var course)
+                    ? course.courseName?.Trim() ?? "" : "";
+            }
+        }
         private const string NotificationPage = "https://smartlead.hallym.ac.kr/local/ubion/user/index.php";
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
@@ -53,20 +87,19 @@ namespace WebNotifications
         private bool accountPagePinned;
         private bool returnFromLogin;
         private bool schoolResult;
-        private bool historyResult;
         private int notificationPriority;
-        private string historyStatus = "읽은 알림 포함 기록 조회 중";
-        private string schoolStatus = "학교 알림 조회 중";
         private readonly List<string> titles = new List<string>();
         private readonly List<string> messages = new List<string>();
         private readonly List<Notice> notificationDetails = new List<Notice>();
         private readonly List<Notice> messageDetails = new List<Notice>();
         private readonly List<Notice> assignmentDetails = new List<Notice>();
         private readonly List<Notice> scheduleDetails = new List<Notice>();
+        private List<Notice> pendingAssignments, sortedCourses;
+        private long pendingAssignmentsMinute;
+        private bool overviewDirty;
         private readonly List<Notice> lectureDetails = new List<Notice>();
         private readonly Dictionary<int, List<Notice>> lectureUpdates = new Dictionary<int, List<Notice>>();
         private readonly HashSet<int> lecturesConfirmed = new HashSet<int>(), lecturesFailed = new HashSet<int>();
-        private string lectureStatus = "동영상 출석 일정 확인 중…";
         private float lectureDeadline;
         private bool lecturePageVisible, showCompletedLectures;
         public bool IsLecturePageVisible => lecturePageVisible;
@@ -78,18 +111,17 @@ namespace WebNotifications
         private readonly HashSet<int> assignmentsFailed = new HashSet<int>();
         private readonly Dictionary<int, List<Notice>> assignmentUpdates = new Dictionary<int, List<Notice>>();
         private readonly HashSet<int> receivedCourses = new HashSet<int>();
-        private string courseworkStatus = "과목 · 과제 확인 중…";
         private bool notificationsConfirmed, rosterPartial;
-        private bool courseworkFailed, scheduleAvailable, courseworkFinished;
+        private bool courseworkFailed, courseworkFinished;
         private float courseworkDeadline;
-        public string CourseworkStatus => networkWasUnavailable ? Status : courseworkStatus;
+        public string CourseworkStatus => networkWasUnavailable ? "인터넷 연결을 확인해 주세요." :
+            courseworkFailed || rosterPartial ? "일부 과제를 확인할 수 없습니다. 다시 확인해 주세요." : "과제를 불러오는 중…";
         private string selectedCourseKey, selectedCourseTitle;
         private Notice selectedNotice;
         private bool editingClassroom;
         private string classroomInput = "";
         public string Status { get; private set; } = "알림 확인 준비 중";
         public string MessageStatus { get; private set; } = "쪽지 확인 준비 중";
-        private string apiStatus = "Moodle 알림 API 확인 중";
         public int Count { get; private set; }
         public int Total { get; private set; }
         public bool HasResult { get; private set; }
@@ -98,7 +130,6 @@ namespace WebNotifications
         public bool HasMessagesResult { get; private set; }
         public bool IsAuthenticated { get; private set; }
         public bool IsSchoolPageVisible => authenticationVisible || assignmentVisible;
-        private GUIStyle touchButton;
 
         private void Start()
         {
@@ -114,10 +145,9 @@ namespace WebNotifications
             script = asset.text;
             var lectures = Resources.Load<TextAsset>("SmartleadVideoAttendance");
             if (lectures != null) script += "\n" + lectures.text;
-            else lectureStatus = "동영상 출석 수집 파일을 불러오지 못했습니다.";
             var coursework = Resources.Load<TextAsset>("SmartleadCoursework");
             if (coursework != null) script += "\n" + coursework.text;
-            else { courseworkFailed = true; courseworkStatus = "과제 수집 파일을 불러오지 못했습니다."; }
+            else courseworkFailed = true;
             try
             {
                 view = new GameObject("SmartLEAD Notification WebView").AddComponent<WebViewObject>();
@@ -134,10 +164,9 @@ namespace WebNotifications
                             SmartleadCredentialStore.Delete(); pendingPassword = null; automaticLoginAttempted = true;
                         }
                         notificationsConfirmed = false;
-                        schoolResult = false; schoolStatus = "학교 알림 조회 중"; apiStatus = "Moodle 알림 API 확인 중";
-                        historyResult = false; notificationPriority = 0; historyStatus = "읽은 알림 포함 기록 조회 중";
+                        schoolResult = false; notificationPriority = 0;
                         titles.Clear(); messages.Clear();
-                        Status = "알림 확인 중"; MessageStatus = "쪽지 확인 중"; },
+                        Status = IsAuthenticated ? "연결 중…" : LoginPrompt; },
                     ld: url => { currentUrl = url; Inject(); }, androidForceDarkMode: 1);
                 ShowAuthentication();
                 // An explicit logout must also survive an editor/app restart. Discard any
@@ -148,7 +177,7 @@ namespace WebNotifications
                     view.LoadURL("https://smartlead.hallym.ac.kr/login.php");
                 }
                 else view.LoadURL(NotificationPage);
-                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
+                Status = LoginPrompt;
                 MessageStatus = "로그인 대기 중";
                 nextRefresh = Time.unscaledTime + 120;
             }
@@ -249,7 +278,7 @@ namespace WebNotifications
                 accountPagePinned = false;
                 returnFromLogin = true;
                 ShowAuthentication();
-                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
+                Status = LoginPrompt;
                 if (LoginPage(currentUrl))
                 {
                     var loginScript = Resources.Load<TextAsset>("SmartleadLogin");
@@ -293,7 +322,6 @@ namespace WebNotifications
             courseworkFinished = false;
             lectureDeadline = Time.unscaledTime + 90;
             lectureUpdates.Clear(); lecturesConfirmed.Clear(); lecturesFailed.Clear();
-            lectureStatus = "동영상 출석 일정 확인 중…";
             view.EvaluateJS(script.Replace("__UNITY_NONCE__", nonce));
         }
 
@@ -309,6 +337,12 @@ namespace WebNotifications
             if (Input.GetKeyDown(KeyCode.Escape)) { HandleMobileBack(); return; }
 #endif
             if (view == null) return;
+            if (showCourseOutline && outlineRequest == null && !outlineFailed) RequestCourseOutline();
+            if (outlineRequest != null && Time.unscaledTime >= outlineDeadline)
+            {
+                ClearOutlineRequest();
+                outlineFailed = true;
+            }
             if (lecturePageVisible) { ApplyWebViewMargins(); return; }
             if (assignmentVisible)
             {
@@ -358,25 +392,30 @@ namespace WebNotifications
                 courseworkDeadline = 0;
                 courseworkFinished = true;
                 courseworkFailed = true;
-                courseworkStatus = "과제 조회가 지연되고 있습니다. 다시 확인하거나 학교 일정을 열어 주세요.";
-                SyncCourseOverview();
+                overviewDirty = true;
             }
             if (lectureDeadline > 0 && Time.unscaledTime >= lectureDeadline)
             {
                 lectureDeadline = 0;
-                lectureStatus = "동영상 출석 조회가 지연되고 있습니다. 다시 확인해 주세요.";
                 foreach (var id in enrolledCourses.Keys) if (!lecturesConfirmed.Contains(id)) lecturesFailed.Add(id);
                 foreach (var item in lectureDetails) if (!lecturesConfirmed.Contains(item.courseId)) item.attendanceStale = true;
-                SyncCourseOverview();
+                overviewDirty = true;
             }
             if (authenticationVisible)
             {
                 ApplyWebViewMargins();
                 return;
             }
-            if (Time.unscaledTime < nextRefresh) return;
+            if (outlineRequest != null || Time.unscaledTime < nextRefresh) return;
             nextRefresh = Time.unscaledTime + 120;
             Refresh();
+        }
+
+        private void LateUpdate()
+        {
+            if (!overviewDirty) return;
+            overviewDirty = false;
+            SyncCourseOverview();
         }
 
         private void ShowAuthentication()
@@ -427,7 +466,9 @@ namespace WebNotifications
             else FinishLogout();
         }
 
-        private void ForgetSavedLogin()
+        internal bool HasSavedLogin => PlayerPrefs.HasKey(SavedIdKey) || PlayerPrefs.GetInt(AutomaticLoginKey, 0) == 1;
+
+        internal void ForgetSavedLogin()
         {
             PlayerPrefs.DeleteKey(SavedIdKey);
             PlayerPrefs.SetInt(RememberIdKey, 0);
@@ -483,11 +524,6 @@ namespace WebNotifications
         private static string ReadLabel(Notice item)
         {
             return !item.readKnown ? "읽음 상태 미확인 · " : item.read ? "읽음 · " : "안 읽음 · ";
-        }
-
-        private void UpdateCourseCubes(Notice[] items, bool isMessage)
-        {
-            SyncCourseOverview();
         }
 
         private void ApplyWebViewMargins()
@@ -586,13 +622,18 @@ namespace WebNotifications
                 if (data.kind == "logout_complete") FinishLogout();
                 return;
             }
+            if (data.kind == "course_outline")
+            {
+                ReceiveCourseOutline(data);
+                return;
+            }
             if (data.kind == "assignment_document" || data.kind == "assignment_document_error")
             {
                 if (!assignmentVisible || string.IsNullOrEmpty(assignmentDocumentRequest) || data.requestId != assignmentDocumentRequest) return;
                 if (data.kind == "assignment_document_error")
                 {
                     assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
-                    RenderAssignmentDocument("<p class='notice'>" + System.Net.WebUtility.HtmlEncode(data.error) + "</p>");
+                    RenderAssignmentDocument("<p class='notice'>과제를 불러오지 못했습니다. 다시 확인해 주세요.</p>");
                     return;
                 }
                 if (assignmentDocumentTarget == null || !SameActivity(data.url, assignmentDocumentTarget.url) || data.total < 1 || data.total > 525 ||
@@ -602,7 +643,9 @@ namespace WebNotifications
                 assignmentDocumentParts[data.index] = data.html;
                 if (Array.Exists(assignmentDocumentParts, part => part == null)) return;
                 assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
-                RenderAssignmentDocument(string.Concat(assignmentDocumentParts));
+                string body = string.Concat(assignmentDocumentParts);
+                CacheAssignment(assignmentDocumentTarget.url, body);
+                RenderAssignmentDocument(body);
                 assignmentDocumentParts = null;
                 return;
             }
@@ -642,32 +685,21 @@ namespace WebNotifications
                 HasResult = false;
                 HasMessagesResult = false;
                 schoolResult = false;
-                historyResult = false;
                 notificationPriority = 0;
-                historyStatus = "학교 로그인 후 알림 기록을 조회합니다.";
                 titles.Clear(); messages.Clear();
                 notificationDetails.Clear(); messageDetails.Clear(); selectedNotice = null;
                 SelectCourse(null, null);
                 courseCubes?.Clear();
                 ClearCoursework();
-                schoolStatus = "학교 로그인 계정 확인 필요";
                 ShowAuthentication();
-                Status = "SmartLEAD에 로그인하면 픽셀 캠퍼스로 이동합니다.";
+                Status = LoginPrompt;
                 MessageStatus = "로그인 대기 중";
                 return;
             }
-            if (data.kind == "api_status")
-            {
-                if (data.source == "school_history") { historyStatus = "읽은 알림 포함 기록 조회 실패: " + data.error; return; }
-                if (data.source == "school") { schoolStatus = "학교 알림 조회 실패: " + data.error; return; }
-                if (schoolResult) return;
-                if (data.source == "messages") MessageStatus = "쪽지 API 사용 불가: " + data.error;
-                else apiStatus = "Moodle 알림 API 사용 불가: " + data.error;
-                return;
-            }
+            if (data.kind == "api_status") return;
             if (schoolResult && data.source != "school_api" && data.source != "school_history" &&
                 !(data.kind == "notifications" && data.source == "message_api")) return;
-            if (data.source == "school_api") { schoolResult = true; schoolStatus = "학교 알림 응답 확인"; }
+            if (data.source == "school_api") schoolResult = true;
             if (data.kind == "messages")
             {
                 MessageCount = Mathf.Clamp(data.count, 0, 9999);
@@ -682,13 +714,12 @@ namespace WebNotifications
                             messages.Add(CourseLabel(item) + ReadLabel(item) + sender + ": " + preview);
                         }
                 HasMessagesResult = data.found;
-                if (data.found && !data.countOnly) ReplaceDetails(messageDetails, data.items, true);
-                if (data.found && !data.countOnly) UpdateCourseCubes(data.items, true);
-                MessageStatus = !data.found ? "쪽지 영역을 확인하지 못했습니다." : data.countOnly ?
-                    "읽지 않은 쪽지 대화 " + MessageCount + "건 (서버) · 발신자 목록 미확인" :
-                    (data.source == "school_api" ? "학교 알림 목록의 쪽지 " : "조회된 쪽지 ") + MessageTotal +
-                    (data.historyLimited || data.unreadLimited ? "건 이상" : "건") +
-                    (data.unreadUnknown ? " · 읽음 상태 미확인" : " · 읽지 않음 " + MessageCount + (data.unreadLimited ? "건 이상" : "건")) + " (서버)";
+                if (data.found && !data.countOnly)
+                {
+                    ReplaceDetails(messageDetails, data.items, true);
+                    overviewDirty = true;
+                }
+                MessageStatus = data.found ? "" : "쪽지를 불러오지 못했습니다.";
                 if (data.found && authenticationVisible && !accountPagePinned)
                 {
                     HideAccountPage();
@@ -699,8 +730,6 @@ namespace WebNotifications
             var priority = data.source == "school_history" ? 3 : data.source == "message_api" ? 2 : data.source == "school_api" ? 1 : 0;
             if (priority < notificationPriority) return;
             notificationPriority = priority;
-            if (data.source == "school_history") { historyResult = true; historyStatus = "학교 알림 기록 응답 확인"; }
-            if (data.source == "popup_api" || data.source == "message_api") apiStatus = "Moodle 알림 API 응답 확인";
             Count = Mathf.Clamp(data.count, 0, 9999);
             Total = Mathf.Clamp(data.total, 0, 9999);
             titles.Clear();
@@ -712,30 +741,29 @@ namespace WebNotifications
             notificationsConfirmed = data.found && !data.historyLimited && !data.unreadLimited &&
                 !data.countOnly && data.count <= (data.items?.Length ?? 0);
             if (data.found) ReplaceDetails(notificationDetails, data.items, false);
-            if (data.found) UpdateCourseCubes(data.items, false);
+            overviewDirty = true;
             if (data.found && authenticationVisible && !accountPagePinned)
             {
                 HideAccountPage();
             }
             else if (!IsAuthenticated && !data.found && !HasMessagesResult) ShowAuthentication();
-            Status = !data.found ? "알림 영역 없음 (" + new Uri(currentUrl).AbsolutePath + "). " + apiStatus :
-                (data.source == "school_history" ? "학교 알림 기록 (읽은 알림 포함) " :
-                    data.source == "school_api" ? "학교 알림·쪽지 " : "Moodle 최근 알림 (읽은 알림 포함) ") + Total + "건" +
-                (data.historyLimited ? " · 최근 목록 일부 표시" : "") +
-                (data.unreadUnknown ? " · 읽음 상태 미확인" : " · 읽지 않음 " + Count + "건") + " (" +
-                (data.source == "dom" ? "화면" : "서버") + ")";
+            Status = data.found ? LoginPrompt : "학교 알림을 불러오지 못했습니다.";
         }
 
         private void ClearCoursework()
         {
             DismissAssignmentDetail();
+            assignmentCache.Clear();
+            courseOutlines.Clear();
+            CloseCourseOutline();
             assignmentDetails.Clear(); enrolledCourses.Clear(); assignmentsConfirmed.Clear(); assignmentsFailed.Clear();
-            scheduleDetails.Clear(); incomingSchedules.Clear(); courseworkFailed = false; scheduleAvailable = false; courseworkFinished = false; courseworkDeadline = 0;
+            scheduleDetails.Clear(); incomingSchedules.Clear(); courseworkFailed = false; courseworkFinished = false; courseworkDeadline = 0;
             lectureDetails.Clear(); lectureUpdates.Clear(); lecturesConfirmed.Clear(); lecturesFailed.Clear();
-            lectureDeadline = 0; lectureStatus = "동영상 출석 일정 확인 중…";
+            lectureDeadline = 0;
             assignmentUpdates.Clear(); receivedCourses.Clear(); incomingCourses.Clear(); currentRosterKnown = false;
             notificationsConfirmed = false; rosterPartial = false;
-            courseworkStatus = "과목 · 과제 확인 중…";
+            pendingAssignments = sortedCourses = null;
+            overviewDirty = false;
         }
 
         private bool ReceiveCoursework(Capture data)
@@ -744,11 +772,10 @@ namespace WebNotifications
             {
                 case "lectures_begin":
                     lectureDeadline = Time.unscaledTime + 90;
-                    lectureStatus = "동영상 출석 일정 확인 중…";
-                    break;
+                    return true;
                 case "lectures_course_begin":
                     lectureUpdates[data.courseId] = new List<Notice>();
-                    break;
+                    return true;
                 case "lecture":
                     if (data.items != null) foreach (var item in data.items)
                         if (item != null && IsLectureUrl(item.url) && lectureUpdates.TryGetValue(item.courseId, out var pendingLectures))
@@ -757,7 +784,7 @@ namespace WebNotifications
                             if (item.lateDueAt <= item.dueAt || item.lateDueAt > 253402300799L) item.lateDueAt = 0;
                             pendingLectures.Add(item);
                         }
-                    break;
+                    return true;
                 case "lectures_complete":
                     foreach (var previous in lectureDetails) if (previous.courseId == data.courseId) previous.attendanceStale = true;
                     bool snapshotReceived = lectureUpdates.TryGetValue(data.courseId, out var lectureSnapshot);
@@ -773,19 +800,17 @@ namespace WebNotifications
                     }
                     if (data.found && snapshotReceived && !data.historyLimited) { lecturesConfirmed.Add(data.courseId); lecturesFailed.Remove(data.courseId); }
                     else { lecturesConfirmed.Remove(data.courseId); lecturesFailed.Add(data.courseId); }
-                    lectureStatus = "동영상 확인 " + lecturesConfirmed.Count + "/" + enrolledCourses.Count + "과목" +
-                        (lecturesFailed.Count > 0 ? " · 일부 출석 기간 확인 필요" : "");
                     break;
                 case "lectures_scan_complete":
                     lectureDeadline = 0;
                     if (!data.found)
                     {
-                        lectureStatus = "동영상 출석 일정 조회 실패 · 학교에서 확인해 주세요.";
                         foreach (var id in enrolledCourses.Keys) if (!lecturesConfirmed.Contains(id)) lecturesFailed.Add(id);
                         foreach (var item in lectureDetails) if (!lecturesConfirmed.Contains(item.courseId)) item.attendanceStale = true;
                     }
                     break;
                 case "schedule":
+                    pendingAssignments = null;
                     if (data.items != null) foreach (var item in data.items)
                         if (item != null && item.dueAt > 0 && SchoolPage(item.url))
                         {
@@ -795,7 +820,7 @@ namespace WebNotifications
                         }
                     break;
                 case "schedule_complete":
-                    scheduleAvailable = data.found;
+                    pendingAssignments = null;
                     if (data.found && !data.historyLimited)
                         scheduleDetails.RemoveAll(previous => !incomingSchedules.Exists(item => SameActivity(previous.url, item.url)));
                     break;
@@ -804,12 +829,11 @@ namespace WebNotifications
                     courseworkFinished = true;
                     courseworkFailed = enrolledCourses.Count == 0 || assignmentsFailed.Count > 0 ||
                         assignmentsConfirmed.Count + assignmentsFailed.Count < enrolledCourses.Count;
-                    if (courseworkFailed && scheduleAvailable) courseworkStatus = "학교 일정 표시 중 · 제출 상태 확인 필요";
                     break;
                 case "course":
                     if (data.items != null) foreach (var item in data.items)
                         if (item != null && item.courseId > 0) { incomingCourses[item.courseId] = item; receivedCourses.Add(item.courseId); }
-                    break;
+                    return true;
                 case "courses_complete":
                     rosterPartial = data.historyLimited;
                     // Replace the snapshot atomically, including a partial current roster.
@@ -819,16 +843,17 @@ namespace WebNotifications
                     foreach (var id in removed) { enrolledCourses.Remove(id); assignmentDetails.RemoveAll(item => item.courseId == id); assignmentsConfirmed.Remove(id); assignmentsFailed.Remove(id); lectureDetails.RemoveAll(item => item.courseId == id); lecturesConfirmed.Remove(id); lecturesFailed.Remove(id); }
                     foreach (var course in incomingCourses) enrolledCourses[course.Key] = course.Value;
                     currentRosterKnown = true;
-                    courseworkStatus = rosterPartial ? "일부 과목만 확인됨 · 전체 목록 확인 필요" : "수강 " + enrolledCourses.Count + "과목 · 과제 확인 중…";
+                    pendingAssignments = sortedCourses = null;
                     break;
                 case "assignments_begin":
                     assignmentUpdates[data.courseId] = new List<Notice>();
-                    break;
+                    return true;
                 case "assignment":
                     if (data.items != null) foreach (var item in data.items)
                         if (item != null && assignmentUpdates.TryGetValue(item.courseId, out var pending)) pending.Add(item);
-                    break;
+                    return true;
                 case "assignments_complete":
+                    pendingAssignments = null;
                     if (data.found && assignmentUpdates.TryGetValue(data.courseId, out var updates))
                     {
                         assignmentDetails.RemoveAll(item => item.courseId == data.courseId);
@@ -839,18 +864,14 @@ namespace WebNotifications
                         else { assignmentsConfirmed.Remove(data.courseId); assignmentsFailed.Add(data.courseId); }
                     }
                     else { assignmentsConfirmed.Remove(data.courseId); assignmentsFailed.Add(data.courseId); }
-                    courseworkStatus = "수강 " + enrolledCourses.Count + "과목 · 과제 확인 " + assignmentsConfirmed.Count + "과목" +
-                        (assignmentsFailed.Count > 0 ? " · 확인 필요 " + assignmentsFailed.Count + "과목" : "") +
-                        (rosterPartial ? " · 전체 과목 확인 필요" : "");
                     break;
                 case "coursework_status":
                     courseworkFailed = true;
-                    courseworkStatus = data.error;
                     foreach (var id in enrolledCourses.Keys) { assignmentsConfirmed.Remove(id); assignmentsFailed.Add(id); }
                     break;
                 default: return false;
             }
-            SyncCourseOverview();
+            overviewDirty = true;
             return true;
         }
 
@@ -874,16 +895,19 @@ namespace WebNotifications
 
         private List<Notice> PendingAssignments()
         {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (pendingAssignments != null && pendingAssignmentsMinute == now / 60) return pendingAssignments;
             var result = assignmentDetails.FindAll(item => (!item.submissionKnown || !item.submitted) && IsCurrentCourse(item));
             foreach (var item in scheduleDetails)
             {
                 // Calendars include old enrolments. Keep overdue work from the current
                 // roster, and future deadlines only while the roster is unavailable.
-                if (currentRosterKnown ? !IsCurrentCourse(item) : item.dueAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds()) continue;
+                if (currentRosterKnown ? !IsCurrentCourse(item) : item.dueAt <= now) continue;
                 if (!assignmentDetails.Exists(task => SameActivity(task.url, item.url))) result.Add(item);
             }
             result.Sort((a, b) => CompareDeadlines(a.dueAt, b.dueAt));
-            return result;
+            pendingAssignmentsMinute = now / 60;
+            return pendingAssignments = result;
         }
 
         private List<Notice> PendingLectures()
@@ -1005,15 +1029,81 @@ namespace WebNotifications
                     (previous.id > 0 ? item.id == previous.id : item.title == previous.title && item.sender == previous.sender));
         }
 
-        public void SelectCourse(string key, string title)
+        public void SelectCourse(string key, string title, bool openOutline = false)
         {
+            CloseCourseOutline();
             editingClassroom = false;
             selectedCourseKey = key;
             selectedCourseTitle = title;
+            foreach (var course in enrolledCourses.Values)
+                if (NoticeCourseKey(course) == key) { outlineCourseId = course.courseId; break; }
             selectedNotice = string.IsNullOrEmpty(key) ? null :
                 PendingAssignments().Find(item => NoticeCourseKey(item) == key) ??
                 notificationDetails.Find(item => NoticeCourseKey(item) == key && (!item.readKnown || !item.read)) ??
                 messageDetails.Find(item => NoticeCourseKey(item) == key);
+            showCourseOutline = openOutline;
+            if (openOutline) RequestCourseOutline();
+        }
+
+        internal void CloseCourseOutline()
+        {
+            if (outlineRequest != null && view != null && SchoolPage(currentUrl))
+                view.EvaluateJS("window.__pixelCampusOutlineAbort?.abort();");
+            ClearOutlineRequest();
+            expandedWeeks.Clear();
+            CloseOutlineActivity();
+            outlineCourseId = 0;
+            showCourseOutline = outlineFailed = false;
+        }
+
+        internal void CloseOutlineActivity()
+        {
+            selectedOutlineActivity = null;
+            selectedOutlineWeekTitle = null;
+        }
+
+        private void ClearOutlineRequest()
+        {
+            outlineRequest = null;
+            outlineParts = null;
+        }
+
+        private void RequestCourseOutline()
+        {
+            if (view == null || !IsAuthenticated || IsSchoolPageVisible || outlineCourseId <= 0 || outlineRequest != null ||
+                courseOutlines.ContainsKey(outlineCourseId) || string.IsNullOrEmpty(nonce) || !SchoolPage(currentUrl)) return;
+            var scriptAsset = Resources.Load<TextAsset>("SmartleadCourseOutline");
+            if (scriptAsset == null) { outlineFailed = true; return; }
+            outlineRequest = new OutlineRequest { courseId = outlineCourseId, requestId = Guid.NewGuid().ToString("N") };
+            outlineDeadline = Time.unscaledTime + 50;
+            view.EvaluateJS(scriptAsset.text.Replace("__UNITY_NONCE__", nonce)
+                .Replace("__COURSE_OUTLINE_REQUEST__", JsonUtility.ToJson(outlineRequest)));
+        }
+
+        private void ReceiveCourseOutline(Capture data)
+        {
+            if (outlineRequest == null || data.requestId != outlineRequest.requestId || data.courseId != outlineRequest.courseId)
+                return;
+            if (!data.found)
+            {
+                ClearOutlineRequest();
+                outlineFailed = true;
+                return;
+            }
+            if (data.total < 1 || data.total > 525 || data.index < 0 || data.index >= data.total ||
+                data.html == null || data.html.Length > 6000) return;
+            if (outlineParts == null) outlineParts = new string[data.total];
+            if (outlineParts.Length != data.total) return;
+            outlineParts[data.index] = data.html;
+            if (Array.Exists(outlineParts, part => part == null)) return;
+            try
+            {
+                var outline = JsonUtility.FromJson<CourseOutline>(string.Concat(outlineParts));
+                if (outline?.weeks == null || outline.weeks.Length == 0) outlineFailed = true;
+                else courseOutlines[data.courseId] = outline;
+            }
+            catch (ArgumentException) { outlineFailed = true; }
+            finally { ClearOutlineRequest(); }
         }
 
 
@@ -1041,60 +1131,71 @@ namespace WebNotifications
 
         private static readonly StringComparer KoreanCourseOrder = StringComparer.Create(CultureInfo.GetCultureInfo("ko-KR"), true);
 
-        public void DrawCourseTab(GUIStyle label)
+        public void DrawCourseTab(float width)
         {
-            var courses = new List<Notice>(enrolledCourses.Values);
-            courses.Sort((left, right) =>
+            if (sortedCourses == null)
             {
-                int order = KoreanCourseOrder.Compare(left.courseName, right.courseName);
-                if (order != 0) return order;
-                order = StringComparer.Ordinal.Compare(left.courseCode, right.courseCode);
-                return order != 0 ? order : left.courseId.CompareTo(right.courseId);
-            });
-            GUILayout.Label("현재 수강 중인 과목", CampusTheme.Heading);
-            if (!currentRosterKnown || rosterPartial)
-                GUILayout.Label(networkWasUnavailable ? Status : courseworkStatus, label);
-            else if (courses.Count == 0)
-                GUILayout.Label("현재 수강 중인 과목이 없습니다.", label);
+                sortedCourses = new List<Notice>(enrolledCourses.Values);
+                sortedCourses.Sort((left, right) =>
+                {
+                    int order = KoreanCourseOrder.Compare(left.courseName, right.courseName);
+                    if (order != 0) return order;
+                    order = StringComparer.Ordinal.Compare(left.courseCode, right.courseCode);
+                    return order != 0 ? order : left.courseId.CompareTo(right.courseId);
+                });
+            }
+            if (sortedCourses.Count == 0)
+                CampusTheme.StatusCard(currentRosterKnown && !rosterPartial ? "현재 수강 중인 과목이 없습니다." :
+                    courseworkFailed || networkWasUnavailable ? "수강 과목을 불러오지 못했습니다." : "수강 과목을 불러오는 중…");
             var detail = GetComponent<NotificationDetailUI>();
-            foreach (var item in courses)
+            foreach (var item in sortedCourses)
             {
                 string name = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
                 string room = CourseClassrooms.Room(item.courseCode);
                 string caption = item.courseCode ?? "";
                 if (!string.IsNullOrWhiteSpace(room))
                     caption = caption.Length > 0 ? caption + "  /  " + room : room;
-                if (CampusTheme.ListCard(name, caption, CampusTheme.Green))
-                    detail?.OpenCourseNotifications(NoticeCourseKey(item), name);
+                string section = CourseSection(item.courseCode);
+                if (CampusTheme.ListCard(name, caption, width, CampusTheme.CourseMarker, courseCard: true, section: section))
+                    detail?.OpenCourseNotifications(NoticeCourseKey(item), name, openOutline: true);
             }
         }
 
-        public void DrawAssignmentTab(GUIStyle label)
+        private static string CourseSection(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return null;
+            int separator = code.LastIndexOf('-');
+            if (separator <= 0 || separator != code.Length - 3) return null;
+            return code[separator + 1] is >= '0' and <= '9' && code[separator + 2] is >= '0' and <= '9'
+                ? code.Substring(separator + 1) : null;
+        }
+
+        public void DrawAssignmentTab(float width)
         {
             var tasks = PendingAssignments();
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            GUILayout.Label("남은 과제 (" + tasks.Count + ")", CampusTheme.Heading);
+            CampusTheme.ScreenTitle("남은 과제", null);
             if (tasks.Count == 0)
             {
                 bool emptyConfirmed = currentRosterKnown && !rosterPartial && assignmentsConfirmed.Count == enrolledCourses.Count;
-                GUILayout.Label(networkWasUnavailable ? Status : emptyConfirmed ? "남은 과제가 없습니다." : courseworkStatus, label);
+                CampusTheme.StatusCard(emptyConfirmed ? "남은 과제가 없습니다." : CourseworkStatus);
             }
             foreach (var item in tasks)
             {
                 string title = string.IsNullOrWhiteSpace(item.title) ? "과제" : item.title;
                 string course = string.IsNullOrWhiteSpace(item.courseName) ? "과목 " + item.courseId : item.courseName;
                 string date = item.dueAt > 0 && item.dueAt <= 253402300799L ?
-                    DateTimeOffset.FromUnixTimeSeconds(item.dueAt).ToOffset(TimeSpan.FromHours(9)).ToString("MM/dd HH:mm") + "  /  " : "";
-                string caption = date + CampusScreenLayout.RemainingTime(item.dueAt) + "\n" + course +
-                    (item.submissionKnown ? "" : "  /  제출 확인 필요");
+                    DateTimeOffset.FromUnixTimeSeconds(item.dueAt).ToOffset(TimeSpan.FromHours(9)).ToString("M월 d일 HH:mm") + " · " : "";
+                string caption = course + (item.submissionKnown ? "" : " · 제출 확인 필요") +
+                    "\n" + date + CampusScreenLayout.RemainingTime(item.dueAt);
                 var deadline = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, now));
-                if (CampusTheme.ListCard(title, caption, deadline, tint: true))
+                if (CampusTheme.ListCard(title, caption, width, deadline, deadlineGradient: true))
                     OpenAssignmentDetail(item);
             }
-            float buttonHeight = 38 * CampusScreenLayout.Scale;
+            GUILayout.Space(8 * CampusScreenLayout.Scale);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("과제 다시 확인", GUILayout.MinHeight(buttonHeight))) Refresh();
-            if (GUILayout.Button("학교 일정 보기", GUILayout.MinHeight(buttonHeight)) && view != null)
+            if (CampusTheme.Action("과제 다시 확인")) Refresh();
+            if (CampusTheme.Action("학교 일정 보기", GUI.skin.button) && view != null)
             {
                 accountPagePinned = true;
                 ShowAuthentication();
@@ -1133,12 +1234,11 @@ namespace WebNotifications
             view.LoadURL(item.url);
         }
 
-        private void DrawLectureList(GUIStyle label, ref int count)
+        private void DrawLectureList(GUIStyle label, float width, ref int count)
         {
-            GUILayout.Label("동영상 출석 일정", CampusTheme.Heading);
-            GUILayout.Label(lectureStatus, label);
-            showCompletedLectures = GUILayout.Toggle(showCompletedLectures,
-                (showCompletedLectures ? "✓ " : "") + "출석 확인된 동영상도 보기", touchButton);
+            CampusTheme.Section("동영상 출석");
+            showCompletedLectures = CampusTheme.Option("출석 확인된 동영상 표시", showCompletedLectures);
+            GUILayout.Space(8 * CampusScreenLayout.Scale);
             var items = lectureDetails.FindAll(item => IsCurrentCourse(item) &&
                 (string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(item) == selectedCourseKey) &&
                 (showCompletedLectures || item.attendanceStale || !item.attendanceKnown || !item.attended));
@@ -1147,46 +1247,61 @@ namespace WebNotifications
             {
                 count++;
                 var deadline = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(item.dueAt, DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
-                if (CampusTheme.DeadlineButton("동영상 · " + item.title + "\n" + LectureRemaining(item) + "\n" + LectureAttendanceLabel(item), deadline, touchButton))
+                var lectureTitle = string.IsNullOrWhiteSpace(item.title) ? "동영상 강의" : item.title;
+                if (CampusTheme.ListCard(lectureTitle, LectureRemaining(item) + "\n" + LectureAttendanceLabel(item),
+                    width, deadline, ReferenceEquals(selectedNotice, item)))
                     selectedNotice = ReferenceEquals(selectedNotice, item) ? null : item;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
                 GUILayout.BeginVertical(GUI.skin.box);
-                GUILayout.Label(CourseLabel(item) + (item.week > 0 ? item.week + "주차" : ""), label);
-                GUILayout.Label(LecturePeriod(item), label);
-                if (item.lateDueAt > 0) GUILayout.Label("지각 인정 종료: " + LectureTime(item.lateDueAt) + " (한국 시간)", label);
-                GUILayout.Label(LectureAttendanceLabel(item), label);
-                if (!string.IsNullOrWhiteSpace(item.progressText)) GUILayout.Label(item.progressText, label);
-                if (!string.IsNullOrWhiteSpace(item.availabilityText)) GUILayout.Label(item.availabilityText, label);
+                GUILayout.Label(CourseLabel(item) + (item.week > 0 ? item.week + "주차" : ""), CampusTheme.SectionTitle);
+                DrawLectureStatus(item, label);
                 GUILayout.Label("학교 플레이어에서 시청한 뒤 학교의 출석 상태를 확인하세요.", label);
-                if (GUILayout.Button("강의 보기", CampusTheme.Primary)) OpenLecture(item);
+                if (CampusTheme.Action("강의 보기", CampusTheme.Primary)) OpenLecture(item);
                 GUILayout.EndVertical();
+                GUILayout.Space(8 * CampusScreenLayout.Scale);
             }
         }
 
-        private void DrawNotices(GUIStyle label)
+        private static void DrawLectureStatus(Notice item, GUIStyle label)
+        {
+            GUILayout.Label(LecturePeriod(item), label);
+            if (item.lateDueAt > 0) GUILayout.Label("지각 인정 종료: " + LectureTime(item.lateDueAt) + " (한국 시간)", label);
+            GUILayout.Label(LectureAttendanceLabel(item), label);
+            if (!string.IsNullOrWhiteSpace(item.progressText)) GUILayout.Label(item.progressText, label);
+            if (!string.IsNullOrWhiteSpace(item.availabilityText)) GUILayout.Label(item.availabilityText, label);
+        }
+
+        private void DrawNotices(GUIStyle label, float width)
         {
             if (!string.IsNullOrEmpty(selectedCourseKey))
-            {
-                GUILayout.Label(selectedCourseTitle, CampusTheme.Heading);
-                DrawClassroom(label);
-                if (GUILayout.Button("전체 알림 보기", touchButton)) SelectCourse(null, null);
-            }
+                CampusTheme.ScreenTitle(selectedCourseTitle, null);
             int count = 0;
-            showSubmittedAssignments = GUILayout.Toggle(showSubmittedAssignments,
-                (showSubmittedAssignments ? "✓ " : "") + "제출 완료 과제도 보기", touchButton);
-            DrawNoticeList(PendingAssignments(), "과제", label, ref count);
+            DrawNoticeList(notificationDetails, "알림", label, width, ref count);
+            DrawNoticeList(messageDetails, "쪽지", label, width, ref count);
+            CampusTheme.Section("과제");
+            showSubmittedAssignments = CampusTheme.Option("제출 완료 과제 표시", showSubmittedAssignments);
+            GUILayout.Space(8 * CampusScreenLayout.Scale);
+            DrawNoticeList(PendingAssignments(), null, label, width, ref count, assignment: true);
             if (showSubmittedAssignments)
-                DrawNoticeList(assignmentDetails.FindAll(item => item.submissionKnown && item.submitted && IsCurrentCourse(item)), "제출 완료 과제", label, ref count);
-            DrawLectureList(label, ref count);
-            DrawNoticeList(notificationDetails, "알림", label, ref count);
-            DrawNoticeList(messageDetails, "쪽지", label, ref count);
+                DrawNoticeList(assignmentDetails.FindAll(item => item.submissionKnown && item.submitted && IsCurrentCourse(item)),
+                    "제출 완료 과제", label, width, ref count, assignment: true);
+            DrawLectureList(label, width, ref count);
             if (count == 0)
             {
                 bool assignmentsKnown = enrolledCourses.Count > 0;
                 foreach (var course in enrolledCourses.Values)
                     if ((string.IsNullOrEmpty(selectedCourseKey) || NoticeCourseKey(course) == selectedCourseKey) &&
                         (!assignmentsConfirmed.Contains(course.courseId) || !lecturesConfirmed.Contains(course.courseId))) assignmentsKnown = false;
-                GUILayout.Label(assignmentsKnown && notificationsConfirmed ? "남은 일정·알림 없음" : "알림·과제·동영상 확인 중이거나 조회가 필요합니다.", label);
+                CampusTheme.StatusCard(assignmentsKnown && notificationsConfirmed ? "남은 일정이나 알림이 없습니다." :
+                    courseworkFailed || networkWasUnavailable ? "일부 일정을 불러오지 못했습니다." : "일정과 알림을 불러오는 중…");
+            }
+            if (!string.IsNullOrEmpty(selectedCourseKey))
+            {
+                CampusTheme.Section("강의실");
+                GUILayout.BeginVertical(GUI.skin.box);
+                DrawClassroom(label);
+                GUILayout.EndVertical();
+                if (CampusTheme.Action("모든 과목의 알림 보기")) SelectCourse(null, null);
             }
         }
 
@@ -1203,41 +1318,52 @@ namespace WebNotifications
             if (code == null)
                 foreach (var course in enrolledCourses.Values)
                     if (NoticeCourseKey(course) == selectedCourseKey) { code = course.courseCode; break; }
-            GUILayout.Label(CourseClassrooms.Label(code), label);
-            GUILayout.Label(CourseClassrooms.Source(code), label);
+            GUILayout.Label(CourseClassrooms.Label(code), CampusTheme.SectionTitle);
+            GUILayout.Label(CourseClassrooms.Source(code), CampusTheme.Caption);
             if (string.IsNullOrWhiteSpace(code)) return;
-            if (!editingClassroom && GUILayout.Button("강의실 입력 / 수정", touchButton))
+            if (!editingClassroom && CampusTheme.Action("강의실 입력 / 수정"))
             { classroomInput = CourseClassrooms.Room(code); editingClassroom = true; }
             if (!editingClassroom) return;
             GUILayout.Label(CourseClassrooms.Term + "학기 · 수강신청 시간표의 강의실 (요일별 여러 교실 입력 가능)", label);
-            classroomInput = GUILayout.TextField(classroomInput, 120, GUILayout.MinHeight(34 * CampusScreenLayout.Scale));
+            classroomInput = GUILayout.TextField(classroomInput, 120, GUILayout.MinHeight(44 * CampusScreenLayout.Scale));
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && !string.IsNullOrWhiteSpace(classroomInput);
-            if (GUILayout.Button("이 기기에 저장", touchButton))
+            if (CampusTheme.Action("이 기기에 저장", CampusTheme.Primary))
             { CourseClassrooms.Save(code, classroomInput); editingClassroom = false; }
             GUI.enabled = enabled;
-            if (GUILayout.Button("입력값 초기화", touchButton))
+            if (CampusTheme.Action("입력값 초기화", GUI.skin.button))
             { CourseClassrooms.Reset(code); classroomInput = CourseClassrooms.Room(code); editingClassroom = false; }
-            if (GUILayout.Button("취소", touchButton)) editingClassroom = false;
+            if (CampusTheme.Action("취소", GUI.skin.button)) editingClassroom = false;
         }
 
-        private void DrawNoticeList(List<Notice> items, string kind, GUIStyle label, ref int count)
+        private void DrawNoticeList(List<Notice> items, string section, GUIStyle label, float width, ref int count, bool assignment = false)
         {
+            bool needsHeading = section != null;
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             foreach (var item in items)
             {
                 if (currentRosterKnown && NoticeCourseKey(item) != null && !IsCurrentCourse(item)) continue;
                 if (!string.IsNullOrEmpty(selectedCourseKey) && NoticeCourseKey(item) != selectedCourseKey) continue;
-                bool assignment = kind == "과제" || kind == "제출 완료 과제";
                 if (!assignment && item.readKnown && item.read) continue;
+                if (needsHeading)
+                {
+                    CampusTheme.Section(section);
+                    needsHeading = false;
+                }
                 count++;
                 string title = string.IsNullOrWhiteSpace(item.title) ? "제목 없음" : item.title;
                 var period = NoticeDeadline(item);
                 long due = period.dueAt;
-                long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 var color = CampusScreenLayout.DeadlineColor(CampusScreenLayout.Stage(due, now));
                 var time = CampusScreenLayout.RemainingTime(due);
-                bool clicked = CampusTheme.DeadlineButton(kind + " · " + title + "\n" + time +
-                    (assignment && !item.submissionKnown ? " · 제출 확인 필요" : ""), color, touchButton);
+                string status = assignment ? item.submissionKnown ? item.submitted ? "제출 완료" : "미제출" : "제출 확인 필요" :
+                    item.readKnown ? "안 읽음" : "읽음 상태 미확인";
+                string caption = CourseLabel(item) + status;
+                if (!string.IsNullOrWhiteSpace(item.sender)) caption += " · " + item.sender;
+                if (assignment || due > 0) caption += "\n" + time;
+                if (!assignment && color == Color.white) color = CampusTheme.Accent;
+                bool clicked = CampusTheme.ListCard(title, caption, width, color,
+                    expanded: !assignment && ReferenceEquals(selectedNotice, item), deadlineGradient: assignment);
                 if (clicked)
                 {
                     if (assignment) OpenAssignmentDetail(item);
@@ -1246,24 +1372,25 @@ namespace WebNotifications
                 if (assignment) continue;
                 if (!ReferenceEquals(selectedNotice, item)) continue;
                 GUILayout.BeginVertical(GUI.skin.box);
-                GUILayout.Label(CourseLabel(item) + (assignment ? item.submissionKnown ? item.submitted ? "제출 완료" : "미제출 / 작성 중" : "제출 확인 필요" : ReadLabel(item)), label);
-                GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), label);
-                GUILayout.Label(time, label);
-                GUILayout.Label(CampusScreenLayout.DeadlineLabel(due, now), label);
+                GUILayout.Label(title, CampusTheme.SectionTitle);
+                GUILayout.Label(CourseClassrooms.Label(ClassroomCode(item)), CampusTheme.Caption);
                 if (due > 0 && due <= 253402300799L)
-                    GUILayout.Label("마감: " + DateTimeOffset.FromUnixTimeSeconds(due).ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") + " (한국 시간)", label);
-                if (!string.IsNullOrWhiteSpace(item.sender)) GUILayout.Label("보낸 사람: " + item.sender, label);
-                GUILayout.Label(title, label);
+                    GUILayout.Label("마감 " + DateTimeOffset.FromUnixTimeSeconds(due).ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") +
+                        " (한국 시간) · " + CampusScreenLayout.DeadlineLabel(due, now), CampusTheme.Caption);
                 GUILayout.Label(string.IsNullOrWhiteSpace(item.body) ?
                     "학교에서 본문을 제공하지 않았습니다. 학교 알림 기록에서 상세 내용을 확인해 주세요." : item.body, label);
-                if (SchoolPage(item.url) && GUILayout.Button("학교에서 원문 보기", touchButton)) OpenNoticePage(item);
+                if (SchoolPage(item.url) && CampusTheme.Action("학교에서 원문 보기")) OpenNoticePage(item);
                 GUILayout.EndVertical();
+                GUILayout.Space(8 * CampusScreenLayout.Scale);
             }
         }
 
-        private void OpenAssignmentDetail(Notice item)
+        private bool OpenAssignmentDetail(Notice item)
         {
-            if (view == null || string.IsNullOrEmpty(nonce) || !SchoolPage(item.url)) return;
+            if (view == null || !IsAuthenticated || !SchoolPage(item.url)) return false;
+            bool hasCache = assignmentCache.TryGetValue(item.url, out var saved) &&
+                Time.unscaledTime - saved.receivedAt < AssignmentCacheSeconds;
+            if (!hasCache && string.IsNullOrEmpty(nonce)) return false;
             if (assignmentView == null)
             {
                 assignmentView = new GameObject("Pixel Campus Assignment Detail").AddComponent<WebViewObject>();
@@ -1279,19 +1406,40 @@ namespace WebNotifications
             assignmentDocumentNonce = Guid.NewGuid().ToString("N");
             view.SetVisibility(false); courseCubes?.SetVisible(false);
             ApplyWebViewMargins(); assignmentView.SetVisibility(!websiteNoticesVisible);
-            RefreshAssignmentDetail();
+            if (hasCache) RenderAssignmentDocument(saved.body);
+            else RefreshAssignmentDetail();
+            return true;
+        }
+
+        private void CacheAssignment(string url, string body)
+        {
+            if (body.Length > 250_000) return;
+            if (assignmentCache.Count >= AssignmentCacheLimit && !assignmentCache.ContainsKey(url))
+            {
+                string oldest = null;
+                float time = float.MaxValue;
+                foreach (var entry in assignmentCache)
+                    if (entry.Value.receivedAt < time) { oldest = entry.Key; time = entry.Value.receivedAt; }
+                if (oldest != null) assignmentCache.Remove(oldest);
+            }
+            assignmentCache[url] = (body, Time.unscaledTime);
         }
 
         public void RefreshAssignmentDetail()
         {
-            if (!assignmentVisible || assignmentSubmissionVisible || assignmentDocumentTarget == null) return;
+            if (!assignmentVisible || assignmentSubmissionVisible || assignmentDocumentTarget == null ||
+                !string.IsNullOrEmpty(assignmentDocumentRequest)) return;
+            if (assignmentAttachmentVisible)
+                assignmentView?.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
             assignmentAttachmentVisible = false;
             assignmentDocumentParts = null;
-            RenderAssignmentDocument("<p class='notice'>과제 본문과 제출 상황을 불러오는 중…</p>");
+            if (string.IsNullOrEmpty(assignmentDocumentHtml))
+                RenderAssignmentDocument("<p class='notice'>과제를 불러오는 중…</p>");
             var capture = Resources.Load<TextAsset>("SmartleadAssignmentDocument");
             if (capture == null || string.IsNullOrEmpty(nonce))
             {
-                RenderAssignmentDocument("<p class='notice'>과제 화면을 준비하지 못했습니다. 뒤로 돌아가 다시 확인해 주세요.</p>");
+                if (!assignmentCache.ContainsKey(assignmentDocumentTarget.url))
+                    RenderAssignmentDocument("<p class='notice'>과제를 불러오지 못했습니다. 다시 확인해 주세요.</p>");
                 return;
             }
             assignmentDocumentRequest = Guid.NewGuid().ToString("N");
@@ -1305,7 +1453,7 @@ namespace WebNotifications
             var template = Resources.Load<TextAsset>("AssignmentDetail");
             if (template == null)
             {
-                AssignmentRenderStatus = "과제 화면 템플릿을 불러오지 못했습니다. Unity의 AssignmentDetail.html 에셋 가져오기 상태를 확인해 주세요.";
+                AssignmentRenderStatus = "과제 화면을 열 수 없습니다. 다시 확인해 주세요.";
                 Debug.LogError("Pixel Campus: Resources/AssignmentDetail.html 템플릿을 불러오지 못했습니다. .meta GUID와 TextAsset 가져오기 상태를 확인하세요.");
                 return;
             }
@@ -1314,12 +1462,19 @@ namespace WebNotifications
                 AssignmentRenderStatus = "과제 화면 표시 장치가 준비되지 않았습니다. 뒤로 돌아가 다시 열어 주세요.";
                 return;
             }
+            var courseTitle = System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.courseName ?? "");
+            var assignmentTitle = System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.title ?? "과제 상세");
+            string font = GetAssignmentFontRule();
+            // Leave headroom for string transport to the native WebView. Long documents use the CSS fallback.
+            if (template.text.Length + courseTitle.Length + assignmentTitle.Length + content.Length + font.Length >
+                MaxDocumentCharsWithEmbeddedFont) font = "";
             // Replace content last: school text containing a template marker must remain text.
-            assignmentDocumentHtml = template.text.Replace("__DOCUMENT_NONCE__", assignmentDocumentNonce)
-                .Replace("__COURSE_TITLE__", System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.courseName ?? ""))
-                .Replace("__ASSIGNMENT_TITLE__", System.Net.WebUtility.HtmlEncode(assignmentDocumentTarget?.title ?? "과제 상세"))
+            assignmentDocumentHtml = template.text.Replace("__ASSIGNMENT_FONT_RULE__", font)
+                .Replace("__DOCUMENT_NONCE__", assignmentDocumentNonce)
+                .Replace("__COURSE_TITLE__", courseTitle)
+                .Replace("__ASSIGNMENT_TITLE__", assignmentTitle)
                 .Replace("__ASSIGNMENT_CONTENT__", content);
-            AssignmentRenderStatus = "과제 화면 준비 중…";
+            AssignmentRenderStatus = null;
             assignmentRendererDeadline = Time.unscaledTime + 10;
             if (!assignmentView.IsInitialized()) pendingAssignmentHtml = assignmentDocumentHtml;
             else
@@ -1327,6 +1482,17 @@ namespace WebNotifications
                 pendingAssignmentHtml = null;
                 assignmentView.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
             }
+        }
+
+        private static string GetAssignmentFontRule()
+        {
+            if (assignmentFontRule != null) return assignmentFontRule;
+            // The bundled WOFF2 is a renamed Pretendard 1.3.9 subset for Latin and common Hangul.
+            var asset = Resources.Load<TextAsset>("CampusFonts/CampusDocumentSans");
+            assignmentFontRule = asset == null ? "" :
+                "@font-face{font-family:'Campus Document Sans';src:url(data:font/woff2;base64," +
+                Convert.ToBase64String(asset.bytes) + ") format('woff2');font-weight:400;font-display:swap}";
+            return assignmentFontRule;
         }
 
         private void ReceiveAssignmentAction(string message)
@@ -1349,13 +1515,14 @@ namespace WebNotifications
                 !SchoolPage(assignmentDocumentTarget.url)) return;
             var path = new Uri(assignmentDocumentTarget.url).AbsolutePath;
             if (path != "/mod/assign/view.php" && path != "/mod/ubassign/view.php") return;
+            assignmentCache.Remove(assignmentDocumentTarget.url);
             assignmentDocumentRequest = null; assignmentDocumentParts = null;
             assignmentDocumentDeadline = assignmentRendererDeadline = 0;
             pendingAssignmentHtml = null;
             assignmentSubmissionVisible = true; assignmentAttachmentVisible = false;
             submissionConversionPrepared = false;
             refreshAssignmentAfterSubmission = false;
-            AssignmentRenderStatus = "학교 제출 화면을 여는 중…";
+            AssignmentRenderStatus = null;
             assignmentView?.EvaluateJS("document.querySelectorAll('video,audio').forEach(function(player){player.pause();});");
             assignmentView?.SetVisibility(false);
             // Reuse the authenticated WebView so HttpOnly cookies and the school's
@@ -1405,27 +1572,186 @@ namespace WebNotifications
             assignmentView?.SetVisibility(false);
         }
 
-        public void Draw(GUIStyle label)
+        public void Draw(GUIStyle label, float width)
         {
-            if (touchButton == null)
-                touchButton = new GUIStyle(GUI.skin.button) { wordWrap = true, alignment = TextAnchor.MiddleLeft };
-            touchButton.fontSize = Mathf.RoundToInt(12 * CampusScreenLayout.Scale);
-            int padding = Mathf.RoundToInt(8 * CampusScreenLayout.Scale);
-            touchButton.padding = new RectOffset(Mathf.Max(14, padding), padding, padding, padding);
-            DrawNotices(label);
-            GUILayout.Label(courseworkStatus, label);
-            GUILayout.Label(Status, label);
-            GUILayout.Label(MessageStatus, label);
-            if (!schoolResult) GUILayout.Label(schoolStatus, label);
-            if (!historyResult) GUILayout.Label(historyStatus, label);
-            if (GUILayout.Button("다시 확인", touchButton)) Refresh();
-            if (GUILayout.Button("학교 로그인 / 계정 확인", touchButton)) OpenAccountPage();
-            if ((PlayerPrefs.HasKey(SavedIdKey) || PlayerPrefs.GetInt(AutomaticLoginKey, 0) == 1) && GUILayout.Button("저장된 ID·비밀번호 삭제 / 자동 로그인 해제", touchButton))
+            if (IsOutlineActivityOpen)
             {
-                ForgetSavedLogin();
+                DrawOutlineDetails();
+                return;
             }
-            if (GUILayout.Button("학교 알림 기록 보기", touchButton)) OpenHistoryPage();
-            if (accountPagePinned && (HasResult || HasMessagesResult) && GUILayout.Button("학교 화면 닫기", touchButton)) HideAccountPage();
+            if (!string.IsNullOrEmpty(selectedCourseKey))
+            {
+                GUILayout.BeginHorizontal();
+                if (CampusTheme.Action("강의 정보", showCourseOutline ? CampusTheme.Secondary : GUI.skin.button))
+                {
+                    showCourseOutline = true;
+                    RequestCourseOutline();
+                }
+                if (CampusTheme.Action("과제와 알림", !showCourseOutline ? CampusTheme.Secondary : GUI.skin.button))
+                    showCourseOutline = false;
+                GUILayout.EndHorizontal();
+                if (showCourseOutline)
+                {
+                    DrawCourseOutline(label, width);
+                    return;
+                }
+            }
+            DrawNotices(label, width);
+            GUILayout.Space(12 * CampusScreenLayout.Scale);
+            if (CampusTheme.Action("다시 확인", CampusTheme.Primary)) Refresh();
+            if (CampusTheme.Action("학교 알림 기록 보기")) OpenHistoryPage();
+        }
+
+        private void DrawCourseOutline(GUIStyle label, float width)
+        {
+            CampusTheme.ScreenTitle(selectedCourseTitle, null);
+            if (courseOutlines.TryGetValue(outlineCourseId, out var outline))
+            {
+                float scale = CampusScreenLayout.Scale;
+                foreach (var week in outline.weeks)
+                {
+                    if (week == null || string.IsNullOrEmpty(week.key)) continue;
+                    bool expanded = expandedWeeks.Contains(week.key);
+                    if (CampusTheme.ListCard(week.title, null, width, Color.white, expanded, disclosure: true))
+                    {
+                        if (expanded) expandedWeeks.Remove(week.key);
+                        else expandedWeeks.Add(week.key);
+                    }
+                    if (!expanded) continue;
+                    GUILayout.BeginVertical(GUI.skin.box);
+                    if (!string.IsNullOrWhiteSpace(week.body)) GUILayout.Label(week.body, label);
+                    if (week.activities == null || week.activities.Length == 0)
+                    {
+                        if (string.IsNullOrWhiteSpace(week.body)) GUILayout.Label("공개된 자료가 없습니다.", CampusTheme.Caption);
+                    }
+                    else foreach (var activity in week.activities)
+                    {
+                        if (activity == null) continue;
+                        var format = OutlineActivityFormat(activity);
+                        var preview = OutlinePreview(activity.body);
+                        string badge = format;
+                        if (format.Length > 5)
+                        {
+                            badge = "파일";
+                            preview = string.IsNullOrEmpty(preview) ? format : format + " · " + preview;
+                        }
+                        if (CampusTheme.ListCard(OutlineActivityTitle(activity), preview, width - 32 * scale, Color.white,
+                            fileBadge: badge, fileTint: OutlineBadgeTint(format)))
+                            SelectOutlineActivity(week, activity);
+                    }
+                    GUILayout.EndVertical();
+                    GUILayout.Space(8 * scale);
+                }
+                if (outline.partial) CampusTheme.StatusCard("일부 주차를 불러오지 못했습니다. 원문을 열거나 다시 확인해 주세요.");
+            }
+            else
+            {
+                CampusTheme.StatusCard(outlineCourseId <= 0 || outlineFailed ? "강의 정보를 불러오지 못했습니다." : "강의 정보를 불러오는 중…");
+            }
+            if (outlineCourseId <= 0) return;
+            if (outlineRequest == null && (outlineFailed || outline != null) && CampusTheme.Action("다시 확인"))
+            {
+                courseOutlines.Remove(outlineCourseId);
+                outlineFailed = false;
+                RequestCourseOutline();
+            }
+            if (CampusTheme.Action("학교 강의실 열기"))
+                OpenNoticePage(new Notice { url = "https://smartlead.hallym.ac.kr/course/view.php?id=" + outlineCourseId });
+        }
+
+        private void SelectOutlineActivity(OutlineWeek week, OutlineActivity activity)
+        {
+            if (IsOutlineActivityUrl(activity.url))
+            {
+                string path = new Uri(activity.url).AbsolutePath;
+                if (path == "/mod/assign/view.php" || path == "/mod/ubassign/view.php")
+                {
+                    var assignment = assignmentDetails.Find(item => SameActivity(item.url, activity.url)) ??
+                        new Notice { courseId = outlineCourseId, courseName = selectedCourseTitle,
+                            title = OutlineActivityTitle(activity), url = activity.url };
+                    if (OpenAssignmentDetail(assignment)) return;
+                }
+            }
+            selectedOutlineActivity = activity;
+            selectedOutlineWeekTitle = week.title;
+        }
+
+        private void DrawOutlineDetails()
+        {
+            var activity = selectedOutlineActivity;
+            string title = OutlineActivityTitle(activity);
+            var context = string.IsNullOrWhiteSpace(selectedOutlineWeekTitle) ? selectedCourseTitle :
+                selectedCourseTitle + " · " + selectedOutlineWeekTitle;
+            GUILayout.Label(context, CampusTheme.Caption);
+            CampusTheme.ScreenTitle(title, OutlineActivityFormat(activity));
+            if (!string.IsNullOrWhiteSpace(activity.fileName) && activity.fileName != title)
+                GUILayout.Label(activity.fileName, CampusTheme.Caption);
+            var lecture = IsLectureUrl(activity.url) ? lectureDetails.Find(item => SameActivity(item.url, activity.url)) : null;
+            string body = activity.body;
+            if (string.IsNullOrWhiteSpace(body) && IsOutlineActivityUrl(activity.url))
+                body = notificationDetails.Find(item => SameActivity(item.url, activity.url) &&
+                    !string.IsNullOrWhiteSpace(item.body))?.body;
+            if (!string.IsNullOrWhiteSpace(body)) CampusTheme.StatusCard(body);
+            if (lecture != null)
+            {
+                GUILayout.BeginVertical(GUI.skin.box);
+                DrawLectureStatus(lecture, CampusTheme.Body);
+                GUILayout.EndVertical();
+            }
+            else if (string.IsNullOrWhiteSpace(body))
+                CampusTheme.StatusCard("등록된 자료 설명이 없습니다.");
+        }
+
+        private static string OutlineActivityTitle(OutlineActivity activity) =>
+            string.IsNullOrWhiteSpace(activity.title) ? "강의 자료" : activity.title;
+
+        private static string OutlinePreview(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return null;
+            const int limit = 52;
+            string preview = Regex.Replace(body, @"\s+", " ").Trim();
+            if (preview.Length <= limit) return preview;
+            int end = char.IsHighSurrogate(preview[limit - 1]) ? limit - 1 : limit;
+            return preview.Substring(0, end).TrimEnd() + "…";
+        }
+
+        private static string OutlineActivityFormat(OutlineActivity activity)
+        {
+            if (!string.IsNullOrEmpty(activity.format) && Regex.IsMatch(activity.format, @"\A[A-Z0-9]{1,12}\z"))
+                return activity.format;
+            if (!IsOutlineActivityUrl(activity.url)) return "안내";
+            if (IsLectureUrl(activity.url)) return "동영상";
+            string path = new Uri(activity.url).AbsolutePath;
+            if (path.StartsWith("/pluginfile.php/", StringComparison.Ordinal)) return "파일";
+            return path.Split('/')[2] switch
+            {
+                "resource" => "파일",
+                "folder" => "폴더",
+                "assign" or "ubassign" => "과제",
+                "forum" or "ubboard" => "게시판",
+                "quiz" => "퀴즈",
+                "url" => "링크",
+                "page" or "book" or "label" => "문서",
+                _ => "자료"
+            };
+        }
+
+        private static Color OutlineBadgeTint(string format) => format switch
+        {
+            "PDF" => new Color32(169, 48, 59, 255),
+            "PPT" or "PPTX" or "과제" => new Color32(153, 69, 29, 255),
+            "XLS" or "XLSX" or "CSV" => new Color32(30, 104, 72, 255),
+            "동영상" or "MP4" or "WEBM" or "MOV" => new Color32(106, 68, 151, 255),
+            "DOC" or "DOCX" or "HWP" or "HWPX" or "링크" => CampusTheme.Accent,
+            _ => CampusTheme.Muted
+        };
+
+        private static bool IsOutlineActivityUrl(string url)
+        {
+            if (!SchoolPage(url)) return false;
+            var address = new Uri(url);
+            return !System.Text.RegularExpressions.Regex.IsMatch(address.Query, @"(?:[?&])(sesskey|token|action|edit|delete|submit)=", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+                System.Text.RegularExpressions.Regex.IsMatch(address.AbsolutePath, @"^/(?:mod/[a-z0-9_]+/(?:view|viewer|index)\.php$|pluginfile\.php/\d+/)");
         }
 
         private void OnApplicationQuit() { view?.SaveCookies(); }

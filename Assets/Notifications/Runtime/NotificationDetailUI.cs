@@ -5,17 +5,24 @@ namespace WebNotifications
 {
     public class NotificationDetailUI : MonoBehaviour
     {
-        private enum CampusTab { Courses, Website, Map, Assignments, Account }
-        private static readonly string[] TabLabels = { "과목", "홈페이지", "지도", "과제", "계정" };
+        private enum CampusTab { Website, Map, Assignments, Account, Courses }
+        private static readonly (CampusTab tab, string label, CampusTheme.TabGlyph glyph)[] NavigationTabs =
+        {
+            (CampusTab.Courses, "과목", CampusTheme.TabGlyph.Courses),
+            (CampusTab.Assignments, "과제", CampusTheme.TabGlyph.Assignments),
+            (CampusTab.Map, "지도", CampusTheme.TabGlyph.Map),
+            (CampusTab.Website, "공지", CampusTheme.TabGlyph.Notices),
+            (CampusTab.Account, "계정", CampusTheme.TabGlyph.Account)
+        };
         private CampusTab tab = CampusTab.Map;
         public NotificationManager manager;
         public NotificationSourceRegistry registry;
         public Camera mapCamera;
         private string source = "";
         private NotificationData selected;
-        private Vector2 scroll, tabScroll;
-        private GUIStyle wrapped, appTitle, appButton;
-        public bool IsNotificationPanelOpen => showNotifications || tab == CampusTab.Website;
+        private Vector2 scroll, tabScroll, outlineActivityScroll;
+        private GUIStyle appTitle, appButton;
+        public bool IsNotificationPanelOpen => showNotifications || !IsMapTabActive;
         public bool IsMapTabActive => tab == CampusTab.Map;
         private bool showNotifications, savedCameraMask;
         private int cameraMask;
@@ -24,47 +31,83 @@ namespace WebNotifications
         private Vector2 panelPointerStart;
         private float panelStartScroll, panelPull;
         public bool SuppressCampusInput => Time.frameCount <= suppressCampusClicksUntil;
-        private Rect TabContentArea => tab == CampusTab.Website ? CampusScreenLayout.ContentArea : CampusScreenLayout.CampusArea;
-        private Rect TabListRect
+        internal bool ShowsMapBackdrop(SmartleadWebView school) => tab == CampusTab.Website ||
+            school.IsAuthenticated && !school.IsSchoolPageVisible;
+
+        private Rect PanelRect
         {
             get
             {
-                var content = TabContentArea;
-                float padding = 12 * CampusScreenLayout.Scale;
-                return new Rect(content.x + padding, content.y + padding, Mathf.Max(1, content.width - 2 * padding),
-                    Mathf.Max(1, content.height - 2 * padding));
+                var content = CampusScreenLayout.CampusArea;
+                float scale = CampusScreenLayout.Scale;
+                float padding = 12 * scale;
+                float reveal = 47 * scale;
+                if (showNotifications) reveal = Mathf.Max(reveal, Mathf.Min(content.height * .16f, 92 * scale));
+                else if (tab == CampusTab.Account) reveal = Mathf.Max(reveal, content.height - 275 * scale);
+                reveal = Mathf.Min(reveal, Mathf.Max(padding, content.height - 155 * scale));
+                return new Rect(content.x + padding, content.y + reveal, Mathf.Max(1, content.width - 2 * padding),
+                    Mathf.Max(1, content.height - padding - reveal));
             }
         }
 
         public void CloseNotifications()
         {
-            if (tab == CampusTab.Website)
+            if (!showNotifications)
             {
+                if (tab == CampusTab.Website) GetComponent<SmartleadWebView>()?.SetWebsiteNoticesVisible(false);
                 tab = CampusTab.Map;
                 tabScroll = Vector2.zero;
-                GetComponent<SmartleadWebView>()?.SetWebsiteNoticesVisible(false);
             }
+            ResetPanelSelection();
+        }
+
+        private void ResetPanelSelection()
+        {
+            if (showNotifications) GetComponent<SmartleadWebView>()?.CloseCourseOutline();
             showNotifications = false;
-            scroll = Vector2.zero;
+            scroll = outlineActivityScroll = Vector2.zero;
             ResetPanelGesture();
             suppressCampusClicksUntil = Time.frameCount + 1;
         }
 
         private void SelectTab(SmartleadWebView school, CampusTab next)
         {
-            if (tab == next && !showNotifications) return;
-            CloseNotifications();
+            if (tab == next && !showNotifications)
+            {
+                if (next == CampusTab.Map && ShowsMapBackdrop(school)) GetComponent<CampusMapView>()?.ShowEntireMap();
+                return;
+            }
+            if ((tab == CampusTab.Website) != (next == CampusTab.Website))
+                school.SetWebsiteNoticesVisible(next == CampusTab.Website);
+            ResetPanelSelection();
             tab = next;
             tabScroll = Vector2.zero;
-            if (next == CampusTab.Website) school.SetWebsiteNoticesVisible(true);
         }
 
         public bool NavigateBack(SmartleadWebView school)
         {
-            if (IsNotificationPanelOpen) { CloseNotifications(); return true; }
-            if (IsMapTabActive || !school.IsAuthenticated || school.IsSchoolPageVisible) return false;
-            SelectTab(school, CampusTab.Map);
+            if (!IsNotificationPanelOpen || !ShowsMapBackdrop(school)) return false;
+            BackWithinPanel(school);
             return true;
+        }
+
+        private void BackWithinPanel(SmartleadWebView school)
+        {
+            if (showNotifications && school.IsOutlineActivityOpen)
+            {
+                school.CloseOutlineActivity();
+                outlineActivityScroll = Vector2.zero;
+                ResetPanelGesture();
+                return;
+            }
+            CloseNotifications();
+        }
+
+        private ref Vector2 PanelScroll(SmartleadWebView school)
+        {
+            if (!showNotifications) return ref tabScroll;
+            if (school.IsOutlineActivityOpen) return ref outlineActivityScroll;
+            return ref scroll;
         }
 
         private void ResetPanelGesture()
@@ -74,18 +117,18 @@ namespace WebNotifications
             panelPull = 0;
         }
 
-        private void BeginPanelGesture(Vector2 position)
+        private void BeginPanelGesture(Vector2 position, SmartleadWebView school)
         {
-            var panel = TabListRect;
+            var panel = PanelRect;
             ResetPanelGesture();
             if (!panel.Contains(position)) return;
             trackingPanelPointer = true;
             panelPointerStart = position;
-            panelStartScroll = showNotifications ? scroll.y : tabScroll.y;
-            pointerFromHandle = showNotifications && position.y < panel.y + 40 * CampusScreenLayout.Scale;
+            panelStartScroll = PanelScroll(school).y;
+            pointerFromHandle = position.y < panel.y + 62 * CampusScreenLayout.Scale;
         }
 
-        private void MovePanelGesture(Vector2 position)
+        private void MovePanelGesture(Vector2 position, SmartleadWebView school)
         {
             if (!trackingPanelPointer) return;
             var delta = position - panelPointerStart;
@@ -96,31 +139,28 @@ namespace WebNotifications
             bool vertical = Mathf.Abs(delta.y) > Mathf.Abs(delta.x) * 1.2f;
             // A new downward gesture at the top dismisses; an existing list scroll
             // remains a scroll even when it subsequently reaches the top.
-            pullingPanel = showNotifications && vertical && delta.y > 0 && (pointerFromHandle || panelStartScroll <= .5f);
+            pullingPanel = vertical && delta.y > 0 && (pointerFromHandle || showNotifications && panelStartScroll <= .5f);
             panelPull = pullingPanel ? delta.y : 0;
             if (!pullingPanel && !pointerFromHandle && vertical)
             {
-                float positionY = Mathf.Max(0, panelStartScroll - delta.y);
-                if (showNotifications) scroll.y = positionY;
-                else tabScroll.y = positionY;
+                PanelScroll(school).y = Mathf.Max(0, panelStartScroll - delta.y);
             }
         }
 
-        private void EndPanelGesture(Vector2 position, bool cancelled)
+        private void EndPanelGesture(Vector2 position, bool cancelled, SmartleadWebView school)
         {
             if (!trackingPanelPointer) return;
-            MovePanelGesture(position);
+            MovePanelGesture(position, school);
             bool close = !cancelled && pullingPanel && panelPull >= 72 * CampusScreenLayout.Scale;
             if (panelPointerMoved) suppressPanelClicksUntil = Time.frameCount + 1;
             ResetPanelGesture();
-            if (close) CloseNotifications();
+            if (close) BackWithinPanel(school);
         }
 
         private void Update()
         {
             var school = manager != null && manager.useWebView ? manager.GetComponent<SmartleadWebView>() : null;
-            bool showingList = tab == CampusTab.Website || school != null && school.IsAuthenticated &&
-                !school.IsSchoolPageVisible && (showNotifications || !IsMapTabActive);
+            bool showingList = school != null && ShowsMapBackdrop(school) && IsNotificationPanelOpen;
             if (!showingList)
             { ResetPanelGesture(); return; }
             if (Input.touchCount > 1) { ResetPanelGesture(); return; }
@@ -128,27 +168,27 @@ namespace WebNotifications
             {
                 var touch = Input.GetTouch(0);
                 var position = new Vector2(touch.position.x, Screen.height - touch.position.y);
-                if (touch.phase == TouchPhase.Began) { BeginPanelGesture(position); panelFingerId = touch.fingerId; }
+                if (touch.phase == TouchPhase.Began) { BeginPanelGesture(position, school); panelFingerId = touch.fingerId; }
                 if (touch.fingerId != panelFingerId) return;
-                if (touch.phase == TouchPhase.Moved) MovePanelGesture(position);
+                if (touch.phase == TouchPhase.Moved) MovePanelGesture(position, school);
                 else if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
-                    EndPanelGesture(position, touch.phase == TouchPhase.Canceled);
+                    EndPanelGesture(position, touch.phase == TouchPhase.Canceled, school);
                 return;
             }
             // Ignore touch-generated mouse events; desktop uses the left button.
             if (panelFingerId >= 0) { ResetPanelGesture(); return; }
             var mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
-            if (Input.GetMouseButtonDown(0)) BeginPanelGesture(mouse);
-            if (Input.GetMouseButton(0)) MovePanelGesture(mouse);
-            if (Input.GetMouseButtonUp(0)) EndPanelGesture(mouse, false);
+            if (Input.GetMouseButtonDown(0)) BeginPanelGesture(mouse, school);
+            if (Input.GetMouseButton(0)) MovePanelGesture(mouse, school);
+            if (Input.GetMouseButtonUp(0)) EndPanelGesture(mouse, false, school);
             else if (trackingPanelPointer && !Input.GetMouseButton(0)) ResetPanelGesture();
         }
-        public void OpenCourseNotifications(string courseKey, string courseTitle)
+        public void OpenCourseNotifications(string courseKey, string courseTitle, bool openOutline = false)
         {
             var school = manager != null ? manager.GetComponent<SmartleadWebView>() : null;
             if (school == null || !school.IsAuthenticated || school.IsSchoolPageVisible) return;
-            school.SelectCourse(courseKey, courseTitle);
-            scroll = Vector2.zero;
+            school.SelectCourse(courseKey, courseTitle, openOutline);
+            scroll = outlineActivityScroll = Vector2.zero;
             ResetPanelGesture();
             showNotifications = true;
         }
@@ -162,7 +202,7 @@ namespace WebNotifications
                 var school = manager.GetComponent<SmartleadWebView>();
                 mapCamera.rect = CampusScreenLayout.CameraRect;
                 var map = GetComponent<CampusMapView>();
-                if (map != null && school != null && school.IsAuthenticated && !school.IsSchoolPageVisible)
+                if (map != null && map.IsMapVisible)
                 {
                     var area = CampusMapView.Viewport;
                     mapCamera.rect = new Rect(area.x / Screen.width, (Screen.height - area.yMax) / Screen.height,
@@ -170,7 +210,7 @@ namespace WebNotifications
                 }
                 if (!savedCameraMask) { cameraMask = mapCamera.cullingMask; savedCameraMask = true; }
                 mapCamera.enabled = true;
-                mapCamera.cullingMask = IsMapTabActive && school != null && school.IsAuthenticated && !school.IsSchoolPageVisible &&
+                mapCamera.cullingMask = school != null && ShowsMapBackdrop(school) &&
                     (map == null || !map.IsMapVisible) ? cameraMask : 0;
                 return;
             }
@@ -181,7 +221,16 @@ namespace WebNotifications
         }
         private void DrawPortraitCampus(SmartleadWebView school)
         {
-            if (school == null) return;
+            if (ShowsMapBackdrop(school))
+            {
+                if (IsNotificationPanelOpen) DrawCampusPanel(school);
+                return;
+            }
+            DrawSchoolWebViewHeader(school);
+        }
+
+        private void DrawSchoolWebViewHeader(SmartleadWebView school)
+        {
             float scale = CampusScreenLayout.Scale;
             var safe = CampusScreenLayout.SafeArea;
             float padding = 12 * scale;
@@ -190,130 +239,151 @@ namespace WebNotifications
                 appTitle = new GUIStyle(CampusTheme.Heading) { wordWrap = false, clipping = TextClipping.Clip };
                 appButton = new GUIStyle(GUI.skin.button) { padding = new RectOffset(3, 3, 4, 4) };
             }
-            appTitle.fontSize = Mathf.RoundToInt(17 * scale);
+            appTitle.fontSize = Mathf.RoundToInt(21 * scale);
             appButton.fontSize = Mathf.RoundToInt(12 * scale);
             var caption = CampusTheme.Caption;
-            wrapped.fontSize = Mathf.RoundToInt(12 * scale);
-            bool campus = school.IsAuthenticated && !school.IsSchoolPageVisible;
             var contentArea = CampusScreenLayout.ContentArea;
-            float headerBottom = !campus || tab == CampusTab.Website ? contentArea.y : safe.y;
+            float headerBottom = contentArea.y;
             CampusTheme.Fill(new Rect(0, 0, Screen.width, headerBottom), Color.white);
             if (headerBottom > safe.y)
                 CampusTheme.Fill(new Rect(0, headerBottom - 1, Screen.width, 1), CampusTheme.Line);
             CampusTheme.Fill(new Rect(0, safe.yMax, Screen.width, Screen.height - safe.yMax), CampusTheme.Paper);
-            float buttonWidth = 62 * scale, buttonHeight = 38 * scale;
-            float buttonY = safe.y + 10 * scale;
+            float buttonWidth = 66 * scale, buttonHeight = 44 * scale;
+            float buttonY = safe.y + 7 * scale;
             float right = safe.xMax - padding;
-            if (tab == CampusTab.Website)
-            {
-                GUI.Label(new Rect(safe.x + padding, safe.y, safe.width - 2 * padding, CampusScreenLayout.HeaderHeight), "학교 공지", appTitle);
-                DrawTabList(school);
-                return;
-            }
             // Desktop WebViews draw into contentArea as textures. Keep the app background
             // outside that area while showing a school page or an assignment document.
             if (school.IsAssignmentDetailVisible)
             {
-                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - 2 * buttonWidth - 4 * padding, 28 * scale), school.AssignmentDetailTitle, appTitle);
-                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - 2 * buttonWidth - 4 * padding, 24 * scale), school.IsAssignmentSubmissionVisible ? "파일 선택 후 학교 화면에서 저장하세요." : "픽셀 캠퍼스 · 과제 상세", caption);
-                if (!school.IsAssignmentSubmissionVisible && GUI.Button(new Rect(right - 2 * buttonWidth - 6 * scale, buttonY, buttonWidth, buttonHeight), "새로고침", appButton)) school.RefreshAssignmentDetail();
-                if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "뒤로", appButton)) school.CloseAssignmentDetail();
+                bool submitting = school.IsAssignmentSubmissionVisible;
+                var back = new Rect(safe.x + 4 * scale, buttonY, buttonHeight, buttonHeight);
+                float titleX = back.xMax + 5 * scale;
+                float titleRight = submitting ? right : right - buttonWidth - 8 * scale;
+                float titleWidth = Mathf.Max(1, titleRight - titleX);
+                string courseName = school.AssignmentCourseName;
+                GUI.Label(new Rect(titleX, safe.y + (submitting ? 3 * scale : 0),
+                    titleWidth, submitting ? 28 * scale : CampusScreenLayout.HeaderHeight),
+                    new GUIContent(string.IsNullOrEmpty(courseName) ? school.AssignmentDetailTitle : courseName, courseName), appTitle);
+                if (submitting)
+                    GUI.Label(new Rect(titleX, safe.y + 31 * scale, titleWidth, 24 * scale),
+                        "파일 선택 후 학교 화면에서 저장하세요.", caption);
+                if (!submitting && GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "새로고침", appButton))
+                    school.RefreshAssignmentDetail();
+                if (CampusTheme.BackButton(back))
+                    school.CloseAssignmentDetail();
                 if (!string.IsNullOrEmpty(school.AssignmentRenderStatus))
                 {
                     var content = CampusScreenLayout.ContentArea;
-                    GUI.Label(new Rect(content.x + padding, content.y + 20 * scale, content.width - 2 * padding, 110 * scale), school.AssignmentRenderStatus, wrapped);
+                    GUI.Label(new Rect(content.x + padding, content.y + 20 * scale, content.width - 2 * padding, 110 * scale), school.AssignmentRenderStatus, CampusTheme.Body);
                 }
                 return;
             }
-            if (!campus)
+            string title = school.IsLecturePageVisible ? "동영상 강의" : school.IsAuthenticated ?
+                tab == CampusTab.Account ? "학교 계정" : "학교 알림 기록" : "SmartLEAD 로그인";
+            GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - buttonWidth - 3 * padding, 28 * scale), title, appTitle);
+            GUI.Label(new Rect(safe.x + padding, safe.y + 29 * scale, safe.width - buttonWidth - 3 * padding, 27 * scale),
+                school.IsLecturePageVisible ? "시청 후 학교의 출석 상태를 확인하세요." :
+                school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : school.Status, caption);
+            if (school.IsAuthenticated)
             {
-                string title = school.IsLecturePageVisible ? "동영상 강의" : school.IsAuthenticated ?
-                    tab == CampusTab.Account ? "학교 계정" : "학교 알림 기록" : "SmartLEAD 로그인";
-                GUI.Label(new Rect(safe.x + padding, safe.y + 3 * scale, safe.width - buttonWidth - 3 * padding, 28 * scale), title, appTitle);
-                GUI.Label(new Rect(safe.x + padding, safe.y + 31 * scale, safe.width - buttonWidth - 3 * padding, 24 * scale),
-                    school.IsLecturePageVisible ? "시청 후 학교의 출석 상태를 확인하세요." : school.IsAuthenticated ? "확인 후 캠퍼스로 돌아가세요." : "로그인하면 픽셀 캠퍼스로 이동합니다.", caption);
-                if (school.IsAuthenticated)
-                {
-                    if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "뒤로", appButton)) school.CloseSchoolPage();
-                }
-                else if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "재접속", appButton)) school.Refresh();
-                GUI.Label(new Rect(safe.x + padding, safe.y + CampusScreenLayout.HeaderHeight + 20 * scale, safe.width - 2 * padding, 90 * scale), school.Status, wrapped);
-                return;
+                if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "뒤로", appButton)) school.CloseSchoolPage();
             }
-            if (!showNotifications)
-            {
-                if (!IsMapTabActive) DrawTabList(school);
-                return;
-            }
-            CampusTheme.Fill(TabContentArea, CampusTheme.Paper);
-            var panel = TabListRect;
+            else if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "재접속", appButton)) school.Refresh();
+        }
+
+        private void DrawCampusPanel(SmartleadWebView school)
+        {
+            float scale = CampusScreenLayout.Scale;
+            bool courseAlerts = showNotifications;
+            bool activityDetails = courseAlerts && school.IsOutlineActivityOpen;
+            var panelTab = tab;
+            CampusTheme.Fill(CampusMapView.Viewport, CampusTheme.MapScrim);
+            var panel = PanelRect;
             float offset = Mathf.Min(panelPull, Mathf.Max(0, panel.height - 100 * scale));
             panel.y += offset;
             panel.height -= offset;
-            GUI.Box(panel, GUIContent.none);
-            var deadline = school.SelectedDeadlineColor;
-            CampusTheme.Fill(new Rect(panel.x + 12 * scale, panel.y + 43 * scale, panel.width - 24 * scale, 2 * scale),
-                deadline == Color.white ? CampusTheme.Line : deadline);
-            GUI.Label(new Rect(panel.x + 12 * scale, panel.y + 5 * scale, panel.width - 92 * scale, 36 * scale),
-                "과제와 알림", CampusTheme.Heading);
+            GUI.Box(panel, GUIContent.none, CampusTheme.GlassSheet);
+            CampusTheme.Fill(new Rect(panel.center.x - 16 * scale, panel.y + 9 * scale, 32 * scale, 3 * scale), CampusTheme.Line);
+            CampusTheme.Fill(new Rect(panel.x + 16 * scale, panel.y + 61 * scale, panel.width - 32 * scale, 1), CampusTheme.Line);
+            string title = activityDetails ? "자료 상세" : courseAlerts ? "과목 상세" : panelTab switch
+            {
+                CampusTab.Website => "학교 공지",
+                CampusTab.Assignments => "과제",
+                CampusTab.Courses => "수강 과목",
+                _ => "계정"
+            };
+            float titleInset = (activityDetails ? 56 : 16) * scale;
+            GUI.Label(new Rect(panel.x + titleInset, panel.y + 16 * scale, panel.width - titleInset - 16 * scale, 44 * scale),
+                title, CampusTheme.Heading);
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && !panelPointerMoved && Time.frameCount > suppressPanelClicksUntil;
             if (panelPointerMoved) GUIUtility.hotControl = 0;
-            if (GUI.Button(new Rect(panel.xMax - 72 * scale, panel.y + 5 * scale, 60 * scale, 34 * scale), "닫기"))
-                CloseNotifications();
-            GUILayout.BeginArea(new Rect(panel.x + 12 * scale, panel.y + 52 * scale, panel.width - 24 * scale,
-                Mathf.Max(1, panel.height - 62 * scale)));
-            scroll = GUILayout.BeginScrollView(scroll);
-            school.Draw(wrapped);
+            if (activityDetails && CampusTheme.BackButton(new Rect(panel.x + 8 * scale, panel.y + 16 * scale, 44 * scale, 44 * scale)))
+            {
+                BackWithinPanel(school);
+                GUI.enabled = enabled;
+                return;
+            }
+            var contentRect = new Rect(panel.x + 14 * scale, panel.y + 67 * scale, panel.width - 28 * scale,
+                Mathf.Max(1, panel.height - 80 * scale));
+            GUILayout.BeginArea(contentRect);
+            ref Vector2 position = ref PanelScroll(school);
+            position = GUILayout.BeginScrollView(position);
+            if (courseAlerts) school.Draw(CampusTheme.Body, contentRect.width);
+            else DrawTabList(school, panelTab, contentRect.width);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
             GUI.enabled = enabled;
         }
 
-        private void DrawTabList(SmartleadWebView school)
+        private void DrawTabList(SmartleadWebView school, CampusTab panelTab, float width)
         {
-            CampusTheme.Fill(TabContentArea, CampusTheme.Paper);
-            bool enabled = GUI.enabled;
-            GUI.enabled = enabled && !panelPointerMoved && Time.frameCount > suppressPanelClicksUntil;
-            if (panelPointerMoved) GUIUtility.hotControl = 0;
-            GUILayout.BeginArea(TabListRect);
-            tabScroll = GUILayout.BeginScrollView(tabScroll);
-            switch (tab)
+            switch (panelTab)
             {
-                case CampusTab.Courses: school.DrawCourseTab(wrapped); break;
-                case CampusTab.Website: GetComponent<UniversityNoticeFeed>()?.Draw(wrapped); break;
-                case CampusTab.Assignments: school.DrawAssignmentTab(wrapped); break;
+                case CampusTab.Courses: school.DrawCourseTab(width); break;
+                case CampusTab.Website: GetComponent<UniversityNoticeFeed>()?.Draw(CampusTheme.Body, width); break;
+                case CampusTab.Assignments: school.DrawAssignmentTab(width); break;
                 case CampusTab.Account:
-                    GUILayout.Label("계정", CampusTheme.Heading);
-                    if (GUILayout.Button("SmartLEAD 계정 열기", CampusTheme.Primary, GUILayout.MinHeight(44 * CampusScreenLayout.Scale)))
+                    if (CampusTheme.Action("SmartLEAD 계정 열기", CampusTheme.Primary))
                         school.OpenAccountPage();
-                    if (GUILayout.Button("로그아웃", GUILayout.MinHeight(44 * CampusScreenLayout.Scale)))
+                    if (school.HasSavedLogin && CampusTheme.Action("이 기기의 저장된 로그인 삭제", GUI.skin.button))
+                        school.ForgetSavedLogin();
+                    if (CampusTheme.Action("로그아웃", GUI.skin.button))
                     {
                         SelectTab(school, CampusTab.Map);
                         school.Logout();
                     }
                     break;
             }
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
-            GUI.enabled = enabled;
         }
 
         private void DrawBottomNavigation(SmartleadWebView school)
         {
             var area = CampusScreenLayout.NavigationArea;
-            float s = CampusScreenLayout.Scale, width = area.width / TabLabels.Length;
-            CampusTheme.Fill(area, Color.white);
-            CampusTheme.Fill(new Rect(area.x, area.y, area.width, 1), CampusTheme.Line);
+            float s = CampusScreenLayout.Scale;
+            bool mapBackdrop = ShowsMapBackdrop(school);
+            if (mapBackdrop)
+            {
+                area = new Rect(area.x + 12 * s, area.y + 3 * s, area.width - 24 * s, area.height - 7 * s);
+                GUI.Box(area, GUIContent.none, CampusTheme.GlassNavigation);
+            }
+            else
+            {
+                CampusTheme.Fill(area, Color.white);
+                CampusTheme.Fill(new Rect(area.x, area.y, area.width, 1), CampusTheme.Line);
+            }
+            float width = area.width / NavigationTabs.Length;
             bool enabled = GUI.enabled;
             bool campus = school.IsAuthenticated && !school.IsSchoolPageVisible;
             bool canSwitch = !school.IsAssignmentDetailVisible && (campus || !school.IsAuthenticated || tab == CampusTab.Website);
-            for (int i = 0; i < TabLabels.Length; i++)
+            for (int i = 0; i < NavigationTabs.Length; i++)
             {
-                var next = (CampusTab)i;
+                var (next, label, glyph) = NavigationTabs[i];
                 GUI.enabled = enabled && canSwitch && (campus || next == CampusTab.Website || next == CampusTab.Map || next == CampusTab.Account);
-                var rect = new Rect(area.x + i * width + 4 * s, area.y + 8 * s, Mathf.Max(1, width - 8 * s), area.height - 16 * s);
-                if (GUI.Button(rect, TabLabels[i], tab == next ? CampusTheme.Primary : appButton))
+                float verticalInset = (mapBackdrop ? 4 : 8) * s;
+                var rect = new Rect(area.x + i * width + 4 * s, area.y + verticalInset,
+                    Mathf.Max(1, width - 8 * s), area.height - 2 * verticalInset);
+                if (CampusTheme.TabButton(rect, label, glyph, tab == next))
                     SelectTab(school, next);
             }
             GUI.enabled = enabled;
@@ -328,8 +398,6 @@ namespace WebNotifications
 
         private void DrawScreen()
         {
-            if (wrapped == null) wrapped = new GUIStyle(GUI.skin.label) { wordWrap = true, richText = false };
-            wrapped.fontSize = GUI.skin.label.fontSize;
             if (manager.useWebView)
             {
                 var school = manager.GetComponent<SmartleadWebView>();
@@ -341,17 +409,14 @@ namespace WebNotifications
                 return;
             }
             float width = PanelWidth;
+            var wrapped = CampusTheme.Body;
             GUILayout.BeginArea(new Rect(12, 12, width, Screen.height - 24), GUI.skin.box);
-            GUILayout.Label((manager.useWebView ? "오늘 수신한 공지 링크 · " : "오늘의 웹 알림 · ") + NotificationManager.TodayKorea.ToString("yyyy-MM-dd"), wrapped);
-            var web = manager.GetComponent<SmartleadWebView>();
-            if (manager.useWebView && web != null) web.Draw(wrapped);
+            GUILayout.Label("오늘의 알림", CampusTheme.Heading);
             var login = manager.GetComponent<NotificationLoginUI>();
-            if (login != null && !manager.useSampleData && !manager.useWebView) login.Draw(wrapped);
-            bool loginUnavailable = !manager.useWebView && login != null && login.LoginUnavailable;
-            if (!loginUnavailable) GUILayout.Label(manager.Status, wrapped);
-            GUILayout.Label("안 읽은 알림 " + manager.Unread(""));
+            if (login != null && !manager.useSampleData) login.Draw(wrapped);
+            bool loginUnavailable = login != null && login.LoginUnavailable;
             GUI.enabled = !manager.IsLoading && !manager.IsAuthenticating && !loginUnavailable;
-            if (GUILayout.Button(manager.IsLoading ? "불러오는 중…" : "새로고침")) manager.Refresh();
+            if (GUILayout.Button("새로고침")) manager.Refresh();
             GUI.enabled = true;
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("전체")) SelectSource("");
@@ -368,9 +433,11 @@ namespace WebNotifications
                 count++;
                 if (GUILayout.Button((item.is_read ? "✓ " : "● ") + item.title, GUILayout.MinHeight(36)))
                 { selected = item; manager.MarkRead(item); }
-                GUILayout.Label((manager.useWebView ? item.course_name + " · 수신 " : item.source_name + " · ") + item.published_at, wrapped);
+                GUILayout.Label(item.source_name + " · " + item.published_at, wrapped);
             }
-            if (count == 0) GUILayout.Label(manager.HasLoaded ? "오늘 등록된 알림이 없습니다." : "연결을 완료하면 알림이 표시됩니다.", wrapped);
+            if (count == 0 && !loginUnavailable)
+                GUILayout.Label(manager.IsLoading ? "알림을 불러오는 중…" : manager.HasLoaded ?
+                    "표시할 알림이 없습니다." : "알림을 가져오지 못했습니다. 다시 확인해 주세요.", wrapped);
             if (selected != null && manager.Items.Exists(n => n.id == selected.id && n.source_id == selected.source_id))
             {
                 GUILayout.Space(16);

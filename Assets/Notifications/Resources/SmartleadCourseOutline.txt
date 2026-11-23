@@ -1,0 +1,212 @@
+(async () => {
+  const origin = 'https://smartlead.hallym.ac.kr';
+  const request = __COURSE_OUTLINE_REQUEST__;
+  const {courseId, requestId} = request;
+  if (location.origin !== origin || !Number.isSafeInteger(courseId) || courseId <= 0) return;
+  const send = data => {
+    const value = JSON.stringify({...data, kind: 'course_outline', courseId, requestId,
+      nonce: '__UNITY_NONCE__', page: location.href});
+    if (typeof window.Unity?.call === 'function') window.Unity.call(value);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(value);
+  };
+  const previous = window.__pixelCampusOutlineAbort;
+  if (previous) previous.abort();
+  const controller = new AbortController();
+  window.__pixelCampusOutlineAbort = controller;
+  const deadline = setTimeout(() => controller.abort(), 45_000);
+  const sections = new Map();
+  const sectionSelector = '.section[data-section], .section[data-sectionid], li.section, [data-for="section"], li[id^="section-"], section[data-section]';
+  const activitySelector = '.activity, .activity-item, [data-for="cmitem"], li[class*="modtype_"]';
+  const plain = node => {
+    if (!node) return '';
+    const copy = node.cloneNode(true);
+    copy.querySelectorAll('script,style,button,.accesshide,.sr-only,[aria-hidden="true"]').forEach(child => child.remove());
+    copy.querySelectorAll('p,div,li,br,tr').forEach(child => child.append(' '));
+    return copy.textContent.replace(/\s+/g, ' ').trim();
+  };
+  const urlOf = (value, base) => {
+    if (!value) return null;
+    try {
+      const url = new URL(value, base);
+      if (url.origin !== origin || url.username || url.password ||
+          [...url.searchParams.keys()].some(key => /^(sesskey|token|action|edit|delete|submit)$/i.test(key))) return null;
+      url.hash = '';
+      return url;
+    } catch { return null; }
+  };
+  const positive = value => /^\d+$/.test(value || '') && Number(value) > 0;
+  const sectionLink = (value, base) => {
+    const url = urlOf(value, base);
+    if (!url) return null;
+    if (url.pathname === '/course/section.php' && positive(url.searchParams.get('id')))
+      return {url: origin + '/course/section.php?id=' + url.searchParams.get('id'), key: 'id:' + url.searchParams.get('id')};
+    const index = url.searchParams.get('section');
+    if (url.pathname === '/course/view.php' && Number(url.searchParams.get('id')) === courseId && /^\d+$/.test(index || ''))
+      return {url: origin + '/course/view.php?id=' + courseId + '&section=' + index, key: 'slot:' + index};
+    return null;
+  };
+  const resourceLink = (value, base) => {
+    const url = urlOf(value, base);
+    return url && (/^\/mod\/[a-z0-9_]+\/(?:view|viewer|index)\.php$/.test(url.pathname) &&
+      positive(url.searchParams.get('id')) || /^\/pluginfile\.php\/\d+\//.test(url.pathname)) ? url.href : '';
+  };
+  const extensions = 'pdf|docx?|pptx?|xlsx?|hwpx?|txt|csv|rtf|od[pts]|epub|zip|rar|7z|png|jpe?g|gif|webp|svg|mp[34]|wav|m4a|ogg|webm|mov|blend|unitypackage';
+  const fileExtension = new RegExp('\\.(' + extensions + ')$', 'i');
+  const attachmentExtension = /\.([a-z][a-z0-9]{0,11}|7z)$/i;
+  const fileIcon = new RegExp('(?:^|/f/)(' + extensions + ')(?:-\\d+)?(?:\\.svg)?(?:[?#].*)?$', 'i');
+  const namedFormat = new RegExp('(?:^|[\\s,(])(' + extensions + ')(?=$|[\\s,.)]|파일|문서)', 'i');
+  const formatOf = (value, pattern = fileExtension) => (value || '').trim().match(pattern)?.[1]?.toUpperCase() || '';
+  const mimeFormats = {
+    'application/pdf': 'PDF',
+    'application/msword': 'DOC',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+    'application/zip': 'ZIP',
+    'text/plain': 'TXT',
+    'image/jpeg': 'JPEG',
+    'image/png': 'PNG',
+    'video/mp4': 'MP4',
+    'audio/mpeg': 'MP3'
+  };
+  const fileNameOf = url => {
+    const path = url ? new URL(url).pathname : '';
+    if (!path.startsWith('/pluginfile.php/')) return '';
+    const segment = path.split('/').pop();
+    try { return decodeURIComponent(segment); } catch { return segment; }
+  };
+  const activityFormat = (activity, link, url, title) => {
+    const fileFormat = formatOf(fileNameOf(url), attachmentExtension) || formatOf(link?.getAttribute('download'), attachmentExtension);
+    if (fileFormat) return fileFormat;
+    if (url && !/^\/mod\/resource\//.test(new URL(url).pathname)) return '';
+    const icon = activity.querySelector('img.activityicon,img[data-region="activity-icon"],img[src*="/f/"]');
+    const mime = (link?.getAttribute('type') || activity.getAttribute('data-mimetype') || '').toLowerCase();
+    const metadata = Array.from(activity.querySelectorAll('.resourcelinkdetails,.displayoptions')).map(plain).join(' ');
+    const description = [icon?.getAttribute('alt'), icon?.getAttribute('title'), metadata].filter(Boolean).join(' ');
+    return mimeFormats[mime] || formatOf(icon?.getAttribute('src'), fileIcon) ||
+      formatOf(description, namedFormat) || formatOf(title);
+  };
+  async function get(url) {
+    const response = await fetch(url, {credentials: 'same-origin', signal: controller.signal});
+    const resolved = new URL(response.url || url);
+    if (!response.ok || resolved.origin !== origin || !/^\/course\/(?:view|section)\.php$/.test(resolved.pathname))
+      throw Error('unavailable');
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    if (doc.querySelector('body.notloggedin, input[name="logintoken"], .errorbox, .exceptionmessage')) throw Error('unavailable');
+    const pageCourse = doc.body?.className.match(/(?:^|\s)course-(\d+)(?:\s|$)/)?.[1];
+    if (pageCourse && Number(pageCourse) !== courseId) throw Error('unavailable');
+    return doc;
+  }
+  const headings = '.sectionname,.section-title,[data-for="section_title"]';
+  const links = new Map();
+  function parse(doc, base, fallback) {
+    const main = doc.querySelector('.course-content,#region-main,[role="main"]');
+    if (!main) throw Error('unavailable');
+    const nodes = [...main.querySelectorAll(sectionSelector)].filter(node => !node.parentElement?.closest(sectionSelector));
+    const seen = new Set();
+    function save(node, nav) {
+      const heading = node.querySelector(headings) || node.querySelector('h2,h3,h4');
+      const title = plain(heading);
+      const slot = node.getAttribute('data-section') || node.getAttribute('data-number') || node.id?.match(/^section-(\d+)$/)?.[1];
+      const headingLink = nav || sectionLink(heading?.querySelector('a[href]')?.getAttribute('href'), base);
+      const weekNumber = Number(title.match(/(?:^|\s)(\d+)\s*주차/)?.[1]);
+      const sectionId = node.getAttribute('data-sectionid');
+      const keys = [headingLink?.key, positive(sectionId) ? 'id:' + sectionId : '', /^\d+$/.test(slot || '') ? 'slot:' + slot : '',
+        Number.isFinite(weekNumber) ? 'slot:' + weekNumber : ''].filter(Boolean);
+      if (!keys.length && title) keys.push('title:' + title);
+      if (!keys.length) return;
+      const key = keys.map(key => sections.get(key)).find(Boolean)?.key || keys[0];
+      const entry = sections.get(key) || {key, title: '', body: '', order: sections.size,
+        number: /^\d+$/.test(slot || '') ? Number(slot) : (Number.isFinite(weekNumber) ? weekNumber : null), activities: []};
+      if (title) entry.title = title;
+      if (/^\d+$/.test(slot || '') && entry.number == null) entry.number = Number(slot);
+      if (!entry.title) entry.title = entry.number === 0 ? '강의 개요' : entry.number ? entry.number + '주차' : '강의 섹션';
+      const summary = node.querySelector('.summary,.section-summary,[data-for="sectioninfo"] .summary');
+      const body = plain(summary);
+      if (body.length > entry.body.length) entry.body = body;
+      const known = new Map(entry.activities.map(item => [item.url || item.title + '\n' + item.body, item]));
+      function add(title, body, url, format = '') {
+        const fileName = fileNameOf(url);
+        format ||= formatOf(fileName, attachmentExtension);
+        const key = url || title + '\n' + body;
+        if (!title && !body) return;
+        const existing = known.get(key);
+        if (existing) {
+          if (body.length > existing.body.length) existing.body = body;
+          if (!existing.format) existing.format = format;
+          return;
+        }
+        const item = {title: title || fileName, body, url, format, fileName};
+        known.set(key, item);
+        entry.activities.push(item);
+      }
+      const activities = [...node.querySelectorAll(activitySelector)].filter(child =>
+        !child.parentElement?.closest(activitySelector));
+      for (const activity of activities) {
+        const links = [...activity.querySelectorAll('a[href]')];
+        const name = activity.querySelector('.instancename,.activityname,[data-for="cm_name"]');
+        const activityLinks = links.map(link => ({link, url: resourceLink(link.getAttribute('href'), base)}))
+          .filter(item => item.url);
+        const primary = activityLinks.find(item => name && (item.link.contains(name) || name.contains(item.link))) || activityLinks[0];
+        const title = plain(name || primary?.link) || (primary ? fileNameOf(primary.url) || '강의 자료' : '');
+        const description = [...activity.querySelectorAll('.contentafterlink,.activity-description,.activity-altcontent,.availabilityinfo,.activity-dates,.displayoptions')]
+          .map(plain).filter(Boolean);
+        add(title, [...new Set(description)].join('\n') || (!name && !primary ? plain(activity) : ''),
+          primary?.url || '', activityFormat(activity, primary?.link, primary?.url, title));
+        for (const item of activityLinks) if (item !== primary)
+          add(plain(item.link) || fileNameOf(item.url), '', item.url);
+      }
+      for (const link of node.querySelectorAll('a[href]')) {
+        const url = resourceLink(link.getAttribute('href'), base);
+        if (url) add(plain(link) || '강의 자료', '', url);
+      }
+      if (headingLink) { links.set(headingLink.url, headingLink); seen.add(headingLink.url); }
+      for (const alias of keys) sections.set(alias, entry);
+    }
+    nodes.forEach(node => save(node, nodes.length === 1 ? fallback : null));
+    if (nodes.length === 0 && fallback) save(main, fallback);
+    for (const link of doc.querySelectorAll('.courseindex a[href],.section-navigation a[href],.sectionname a[href],.section-title a[href],[data-for="section_title"] a[href],a[href*="/course/section.php"],.section-navigation option[value],.jumpmenu option[value]')) {
+      if (!main.contains(link) && !link.closest('.courseindex,.section-navigation')) continue;
+      if (link.closest('.activity,.summary,.section-summary')) continue;
+      const item = sectionLink(link.getAttribute('href') || link.getAttribute('value'), base);
+      if (!item || seen.has(item.url)) continue;
+      links.set(item.url, item);
+      if (!sections.has(item.key)) {
+        const title = plain(link);
+        if (!title || /^(이전|다음)( 주차)?$|^(previous|next)$/i.test(title)) continue;
+        const number = title.match(/(?:^|\s)(\d+)\s*주차/)?.[1] || item.key.match(/^slot:(\d+)$/)?.[1];
+        sections.set(item.key, {key: item.key, title, number: number == null ? null : Number(number),
+          order: sections.size, body: '', activities: []});
+      }
+    }
+  }
+  try {
+    const home = origin + '/course/view.php?id=' + courseId;
+    parse(await get(home), home, null);
+    const visited = new Set([home]);
+    let partial = false;
+    while (!controller.signal.aborted) {
+      const batch = [...links.values()].filter(link => !visited.has(link.url));
+      if (!batch.length) break;
+      let next = 0;
+      await Promise.all(Array.from({length: Math.min(4, batch.length)}, async () => {
+        while (!controller.signal.aborted && next < batch.length) {
+          const link = batch[next++];
+          visited.add(link.url);
+          try { parse(await get(link.url), link.url, link); } catch { partial = true; }
+        }
+      }));
+    }
+    if (window.__pixelCampusOutlineAbort !== controller) return;
+    const weeks = [...new Set(sections.values())].sort((a, b) =>
+      (a.number ?? a.order) - (b.number ?? b.order) || a.order - b.order);
+    if (!weeks.length) { send({found: false}); return; }
+    const content = JSON.stringify({weeks, partial: partial || controller.signal.aborted});
+    const size = 6000;
+    const total = Math.ceil(content.length / size);
+    if (total > 525) { send({found: false}); return; }
+    for (let index = 0; index < total; index++)
+      send({found: true, index, total, html: content.slice(index * size, (index + 1) * size)});
+  } catch { if (window.__pixelCampusOutlineAbort === controller) send({found: false}); }
+  finally { clearTimeout(deadline); }
+})();
