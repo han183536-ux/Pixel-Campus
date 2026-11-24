@@ -12,7 +12,7 @@ namespace WebNotifications
     {
         [Serializable] private class Attachment { public string name, url; }
         [Serializable] private class Notice { public int id, courseId, week; public long dueAt, createdAt, startAt, modifiedAt, lateDueAt; public string sender, title, body, url, courseName, courseCode, type, submissionStatus, gradingStatus, submissionText, attendanceStatus, progressText, availabilityText; public bool read, readKnown, submitted, submissionKnown, detailLoaded, submissionFilesKnown, detailTruncated, attendanceKnown, attended, attendancePeriodKnown, attendanceStale; public Attachment[] submittedFiles, instructionFiles, instructionImages; }
-        [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered; public Notice[] items; }
+        [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered, previewsIncomplete; public Notice[] items; }
         private const string RememberIdKey = "smartlead.remember-id";
         private const string SavedIdKey = "smartlead.saved-id";
         private const string AutomaticLoginKey = "smartlead.automatic-login";
@@ -357,12 +357,12 @@ namespace WebNotifications
                 if (assignmentRendererDeadline > 0 && Time.unscaledTime >= assignmentRendererDeadline)
                 {
                     assignmentRendererDeadline = 0;
-                    AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 새로고침을 눌러 다시 시도해 주세요.";
+                    AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 뒤로 돌아가 다시 열어 주세요.";
                 }
                 if (assignmentDocumentDeadline > 0 && Time.unscaledTime >= assignmentDocumentDeadline)
                 {
                     assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
-                    RenderAssignmentDocument("<p class='notice'>과제 내용을 불러오는 데 시간이 걸리고 있습니다. 위의 새로고침을 눌러 다시 시도해 주세요.</p>");
+                    RenderAssignmentDocument("<p class='notice'>과제 내용을 불러오는 데 시간이 걸리고 있습니다. 과제 상세를 다시 열어 주세요.</p>");
                 }
                 return;
             }
@@ -644,7 +644,7 @@ namespace WebNotifications
                 if (Array.Exists(assignmentDocumentParts, part => part == null)) return;
                 assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
                 string body = string.Concat(assignmentDocumentParts);
-                CacheAssignment(assignmentDocumentTarget.url, body);
+                if (!data.previewsIncomplete) CacheAssignment(assignmentDocumentTarget.url, body);
                 RenderAssignmentDocument(body);
                 assignmentDocumentParts = null;
                 return;
@@ -1397,7 +1397,7 @@ namespace WebNotifications
                 assignmentView.transform.SetParent(transform);
                 assignmentView.Init(cb: ReceiveAssignmentAction,
                     ld: _ => { AssignmentRenderStatus = null; assignmentRendererDeadline = 0; },
-                    err: _ => { AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 새로고침으로 다시 시도해 주세요."; assignmentRendererDeadline = 0; },
+                    err: _ => { AssignmentRenderStatus = "과제 화면을 표시하지 못했습니다. 뒤로 돌아가 다시 열어 주세요."; assignmentRendererDeadline = 0; },
                     httpErr: _ => { AssignmentRenderStatus = "과제 첨부파일을 불러오지 못했습니다. 뒤로 돌아가 다시 시도해 주세요."; assignmentRendererDeadline = 0; },
                     androidForceDarkMode: 1);
             }
@@ -1425,13 +1425,10 @@ namespace WebNotifications
             assignmentCache[url] = (body, Time.unscaledTime);
         }
 
-        public void RefreshAssignmentDetail()
+        private void RefreshAssignmentDetail()
         {
             if (!assignmentVisible || assignmentSubmissionVisible || assignmentDocumentTarget == null ||
                 !string.IsNullOrEmpty(assignmentDocumentRequest)) return;
-            if (assignmentAttachmentVisible)
-                assignmentView?.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
-            assignmentAttachmentVisible = false;
             assignmentDocumentParts = null;
             if (string.IsNullOrEmpty(assignmentDocumentHtml))
                 RenderAssignmentDocument("<p class='notice'>과제를 불러오는 중…</p>");
@@ -1531,9 +1528,12 @@ namespace WebNotifications
             view.LoadURL(assignmentDocumentTarget.url);
         }
 
-        public void CloseAssignmentDetail()
+        public void CloseAssignmentDetail() => CloseAssignmentDetail(returnToCampus: false);
+
+        internal void CloseAssignmentDetail(bool returnToCampus)
         {
-            if (assignmentSubmissionVisible)
+            bool restoreCollector = assignmentSubmissionVisible;
+            if (!returnToCampus && restoreCollector)
             {
                 submissionConversion?.Dispose();
                 assignmentSubmissionVisible = false;
@@ -1542,20 +1542,23 @@ namespace WebNotifications
                 assignmentView?.SetVisibility(!websiteNoticesVisible);
                 RenderAssignmentDocument("<p class='notice'>학교에서 제출 상태를 다시 확인하고 있습니다…</p>");
                 assignmentDocumentDeadline = Time.unscaledTime + 16;
-                // Restore the collector page only after the user leaves the form.
-                // Loading it during a file chooser/app resume would discard input.
-                resumeRefreshPending = false;
-                view.LoadURL(NotificationPage);
-                return;
             }
-            if (assignmentAttachmentVisible)
+            else if (!returnToCampus && assignmentAttachmentVisible)
             {
                 assignmentAttachmentVisible = false;
                 assignmentView?.LoadHTML(assignmentDocumentHtml, "https://smartlead.hallym.ac.kr/");
-                return;
             }
-            DismissAssignmentDetail();
-            courseCubes?.SetVisible(IsAuthenticated && !authenticationVisible);
+            else
+            {
+                DismissAssignmentDetail();
+                courseCubes?.SetVisible(IsAuthenticated && !authenticationVisible);
+            }
+
+            if (!restoreCollector) return;
+            // Restore the collector page only after the user leaves the form.
+            // Loading it during a file chooser/app resume would discard input.
+            resumeRefreshPending = false;
+            view.LoadURL(NotificationPage);
         }
 
         private void DismissAssignmentDetail()

@@ -39,14 +39,9 @@ namespace WebNotifications
             get
             {
                 var content = CampusScreenLayout.CampusArea;
-                float scale = CampusScreenLayout.Scale;
-                float padding = 12 * scale;
-                float reveal = 47 * scale;
-                if (showNotifications) reveal = Mathf.Max(reveal, Mathf.Min(content.height * .16f, 92 * scale));
-                else if (tab == CampusTab.Account) reveal = Mathf.Max(reveal, content.height - 275 * scale);
-                reveal = Mathf.Min(reveal, Mathf.Max(padding, content.height - 155 * scale));
-                return new Rect(content.x + padding, content.y + reveal, Mathf.Max(1, content.width - 2 * padding),
-                    Mathf.Max(1, content.height - padding - reveal));
+                float padding = 12 * CampusScreenLayout.Scale;
+                return new Rect(content.x + padding, content.y, Mathf.Max(1, content.width - 2 * padding),
+                    Mathf.Max(1, content.height - padding));
             }
         }
 
@@ -72,10 +67,16 @@ namespace WebNotifications
 
         private void SelectTab(SmartleadWebView school, CampusTab next)
         {
-            if (tab == next && !showNotifications)
+            bool leavingSchoolPage = school.IsAuthenticated && school.IsSchoolPageVisible;
+            if (tab == next && !showNotifications && !leavingSchoolPage)
             {
                 if (next == CampusTab.Map && ShowsMapBackdrop(school)) GetComponent<CampusMapView>()?.ShowEntireMap();
                 return;
+            }
+            if (leavingSchoolPage)
+            {
+                if (school.IsAssignmentDetailVisible) school.CloseAssignmentDetail(returnToCampus: true);
+                else school.CloseSchoolPage();
             }
             if ((tab == CampusTab.Website) != (next == CampusTab.Website))
                 school.SetWebsiteNoticesVisible(next == CampusTab.Website);
@@ -258,8 +259,7 @@ namespace WebNotifications
                 bool submitting = school.IsAssignmentSubmissionVisible;
                 var back = new Rect(safe.x + 4 * scale, buttonY, buttonHeight, buttonHeight);
                 float titleX = back.xMax + 5 * scale;
-                float titleRight = submitting ? right : right - buttonWidth - 8 * scale;
-                float titleWidth = Mathf.Max(1, titleRight - titleX);
+                float titleWidth = Mathf.Max(1, right - titleX);
                 string courseName = school.AssignmentCourseName;
                 GUI.Label(new Rect(titleX, safe.y + (submitting ? 3 * scale : 0),
                     titleWidth, submitting ? 28 * scale : CampusScreenLayout.HeaderHeight),
@@ -267,8 +267,6 @@ namespace WebNotifications
                 if (submitting)
                     GUI.Label(new Rect(titleX, safe.y + 31 * scale, titleWidth, 24 * scale),
                         "파일 선택 후 학교 화면에서 저장하세요.", caption);
-                if (!submitting && GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "새로고침", appButton))
-                    school.RefreshAssignmentDetail();
                 if (CampusTheme.BackButton(back))
                     school.CloseAssignmentDetail();
                 if (!string.IsNullOrEmpty(school.AssignmentRenderStatus))
@@ -374,12 +372,10 @@ namespace WebNotifications
             }
             float width = area.width / NavigationTabs.Length;
             bool enabled = GUI.enabled;
-            bool campus = school.IsAuthenticated && !school.IsSchoolPageVisible;
-            bool canSwitch = !school.IsAssignmentDetailVisible && (campus || !school.IsAuthenticated || tab == CampusTab.Website);
             for (int i = 0; i < NavigationTabs.Length; i++)
             {
                 var (next, label, glyph) = NavigationTabs[i];
-                GUI.enabled = enabled && canSwitch && (campus || next == CampusTab.Website || next == CampusTab.Map || next == CampusTab.Account);
+                GUI.enabled = enabled && (school.IsAuthenticated || next == CampusTab.Website || next == CampusTab.Map || next == CampusTab.Account);
                 float verticalInset = (mapBackdrop ? 4 : 8) * s;
                 var rect = new Rect(area.x + i * width + 4 * s, area.y + verticalInset,
                     Mathf.Max(1, width - 8 * s), area.height - 2 * verticalInset);

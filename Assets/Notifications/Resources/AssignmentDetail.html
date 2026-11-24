@@ -24,6 +24,8 @@ article{padding:4px clamp(12px,4vw,22px) 12px;background:#fff;border:1px solid v
 article *{font-family:inherit!important}
 article :is(code,pre,kbd,samp){font-family:ui-monospace,Consolas,monospace!important}
 img{max-width:100%!important;height:auto!important}
+.attachment-preview{display:block;width:auto;max-height:60vh;margin:12px 0 4px;border-radius:8px;object-fit:contain}
+.attachment-preview[hidden]{display:none!important}
 table{border-collapse:collapse;width:100%!important;margin:16px 0;background:#fff;table-layout:fixed}
 th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top;word-break:break-word;font-weight:normal}
 th{color:var(--muted);font-weight:600}
@@ -42,7 +44,9 @@ ul,ol{padding-left:24px}
 #intro{margin-bottom:20px}
 .fileuploadsubmission,.introattachments{overflow-wrap:anywhere}
 button,input{display:none!important}
-video{display:block;width:100%;max-width:100%;height:auto;max-height:70vh;background:#000;margin:18px 0 6px}audio{display:block;width:100%;margin:18px 0 6px}.media-error{font-size:14px;color:#a32929}
+video{display:block;width:100%;aspect-ratio:16/9;max-height:70vh;border-radius:8px;object-fit:contain;background:#161820;margin:18px 0 6px}
+audio{display:block;width:100%;margin:18px 0 6px}
+.media-error{display:block;font-size:14px;color:#a32929}
 .submission-action{position:sticky;bottom:0;z-index:10;margin-top:auto;padding:8px 0;background:var(--paper)}
 .submission-action a{display:block;min-height:44px;padding:11px 16px;border-radius:var(--radius);background:var(--accent);color:white;font-weight:600;text-align:center;text-decoration:none}
 .submission-action a:active{background:#004694}
@@ -50,5 +54,25 @@ video{display:block;width:100%;max-width:100%;height:auto;max-height:70vh;backgr
 </style></head><body><main><div class="course">__COURSE_TITLE__</div><h1>__ASSIGNMENT_TITLE__</h1><article>__ASSIGNMENT_CONTENT__</article><p id="submission-hint" class="submission-hint">학교 제출 화면에서 파일을 선택하고 저장하세요.</p><div class="submission-action"><a id="assignment-submit" href="#submission" aria-describedby="submission-hint">파일 첨부·제출</a></div></main>
 <script nonce="__DOCUMENT_NONCE__">
 document.addEventListener('click',function(event){const link=event.target.closest('a[href]');if(!link)return;event.preventDefault();const kind=link===document.getElementById('assignment-submit')?'assignment_submission':'assignment_attachment';const packet=JSON.stringify({kind,nonce:'__DOCUMENT_NONCE__',url:kind==='assignment_attachment'?link.href:''});if(window.Unity&&typeof window.Unity.call==='function')window.Unity.call(packet);else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(packet);});
-document.querySelectorAll('video,audio').forEach(function(player){player.addEventListener('error',function(){if(player.nextElementSibling&&player.nextElementSibling.className==='media-error')return;const message=document.createElement('p');message.className='media-error';message.textContent='영상을 재생하지 못했습니다. 영상 파일 열기를 눌러 확인하거나 학교 로그인 후 새로고침해 주세요.';player.after(message);});});
+document.querySelectorAll('.attachment-preview').forEach(function(image){
+  function showError(){
+    image.hidden=true;
+    const message=document.createElement('span');
+    message.className='media-error';
+    message.textContent='이미지 미리보기를 불러오지 못했습니다.';
+    image.after(message);
+  }
+  if(image.complete&&!image.naturalWidth)showError();
+  else image.addEventListener('error',showError,{once:true});
+});
+document.querySelectorAll('video,audio').forEach(function(player){
+  function showError(){
+    const message=document.createElement('p');
+    message.className='media-error';
+    message.textContent='미리보기에서 재생하지 못했습니다. 아래 링크에서 파일을 열어 주세요.';
+    player.after(message);
+  }
+  if(player.error)showError();
+  else player.addEventListener('error',showError,{once:true});
+});
 </script></body></html>

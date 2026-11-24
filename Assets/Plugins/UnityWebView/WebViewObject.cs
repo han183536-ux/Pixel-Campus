@@ -1584,13 +1584,14 @@ namespace Gree.UnityWebView
         {
             if (onJS != null)
             {
-#if !UNITY_ANDROID
+                // Windows WebView2 passes raw postMessage strings, including JSON and base64.
+#if !UNITY_ANDROID && !UNITY_EDITOR_WIN && !UNITY_STANDALONE_WIN
 #if UNITY_2018_4_OR_NEWER
                 message = UnityWebRequest.UnEscapeURL(message);
 #else // UNITY_2018_4_OR_NEWER
                 message = WWW.UnEscapeURL(message);
 #endif // UNITY_2018_4_OR_NEWER
-#endif // !UNITY_ANDROID
+#endif
                 onJS(message);
             }
         }
