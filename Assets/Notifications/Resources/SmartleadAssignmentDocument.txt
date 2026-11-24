@@ -20,6 +20,37 @@
     if (doc.querySelector('body.notloggedin, input[name="logintoken"], form[action*="/login/"]')) throw Error('login_required');
     const root = doc.querySelector('#region-main') || doc.querySelector('[role="main"]');
     if (!root || !root.querySelector('#intro, .submissionstatustable, .submissionstatus')) throw Error('unknown_assignment_layout');
+    const assignmentId = url.searchParams.get('id');
+    const actions = new Set();
+    if (/^[1-9]\d*$/.test(assignmentId || '') &&
+        final.pathname === url.pathname && final.searchParams.get('id') === assignmentId) {
+      for (const control of root.querySelectorAll('a[href], form[action]')) {
+        if (control.closest('[hidden], [aria-disabled="true"], .disabled')) continue;
+        const isForm = control.tagName === 'FORM';
+        const method = (control.getAttribute('method') || 'get').toLowerCase();
+        if (isForm && method !== 'get' && method !== 'post') continue;
+        if (isForm && !control.querySelector('button:not([type]):not([disabled]), button[type="submit"]:not([disabled]), input[type="submit"]:not([disabled])')) continue;
+        let destination;
+        try { destination = new URL(control.getAttribute(isForm ? 'action' : 'href'), final.href); }
+        catch { continue; }
+        if (destination.origin !== url.origin || destination.pathname !== url.pathname ||
+            destination.username || destination.password) continue;
+        if (isForm) {
+          for (const field of control.querySelectorAll('input[type="hidden"]:not([disabled])')) {
+            const name = field.getAttribute('name');
+            if (name === 'id' || name === 'action') destination.searchParams.append(name, field.value);
+          }
+        }
+        const ids = destination.searchParams.getAll('id');
+        const action = destination.searchParams.getAll('action');
+        if (ids.length !== 1 || ids[0] !== assignmentId || action.length !== 1) continue;
+        if (!isForm || method === 'get' || action[0] === 'submitforgrading' || action[0] === 'confirmsubmit')
+          actions.add(action[0]);
+      }
+    }
+    // Drafts awaiting final confirmation stay on the status page so its submit control is available.
+    const canEditSubmission = actions.has('editsubmission') &&
+      !actions.has('submitforgrading') && !actions.has('confirmsubmit');
     const content = root.cloneNode(true);
     // Keep the school's assignment content and table markup. Do not import its navigation,
     // executable code, account data, or controls that could submit/change a school record.
@@ -214,7 +245,8 @@
     const html = content.innerHTML;
     if (!html || html.length > 4 * 1024 * 1024) throw Error('assignment_too_large');
     const total = Math.ceil(html.length / 8000);
-    for (let index = 0; index < total; index++) send({kind: 'assignment_document', url: url.href, index, total, previewsIncomplete, html: html.slice(index * 8000, (index + 1) * 8000)});
+    for (let index = 0; index < total; index++) send({kind: 'assignment_document', url: url.href, index, total,
+      previewsIncomplete, canEditSubmission, html: html.slice(index * 8000, (index + 1) * 8000)});
   } catch (error) {
     send({kind: 'assignment_document_error', error: error.message === 'login_required' ? '학교 로그인이 만료되었습니다. 계정에서 다시 로그인해 주세요.' :
       '과제 내용을 불러오지 못했습니다. 과제 상세를 다시 열어 주세요.'});

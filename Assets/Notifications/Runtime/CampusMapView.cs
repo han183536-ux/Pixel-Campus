@@ -5,12 +5,17 @@ namespace WebNotifications
     /// <summary>Offline campus image with pointer-anchored zoom and bounded panning.</summary>
     public sealed class CampusMapView : MonoBehaviour
     {
-        private const string ViewKey = "PixelCampus.MapView.FullCampus.";
+        private const string ViewKey = "PixelCampus.MapView.GeographicCampus.";
+        private const string AttributionUrl = "https://www.openstreetmap.org/copyright";
+        private static readonly GUIContent MapAttribution = new GUIContent("© OpenStreetMap contributors", "OpenStreetMap 저작권 및 라이선스");
+        // The texture includes the surrounding streets, so only the campus itself must fit at overview zoom.
+        private static readonly Vector2 CampusFootprint = new Vector2(.86f, .46f);
         private SmartleadWebView school;
         private NotificationDetailUI detail;
         private Texture2D map;
         private RenderTexture blurredMap;
         private Material blurMaterial;
+        private GUIStyle attributionStyle;
         private bool blurUnavailable;
         private static readonly int BlurStep = Shader.PropertyToID("_BlurStep");
         private float zoom = 1f;
@@ -48,6 +53,17 @@ namespace WebNotifications
             }
         }
 
+        internal static Rect AttributionRect
+        {
+            get
+            {
+                var area = CampusScreenLayout.CampusArea;
+                float scale = CampusScreenLayout.Scale;
+                return new Rect(area.x + 12 * scale, area.yMax - 27 * scale,
+                    Mathf.Max(1, Mathf.Min(180 * scale, area.width - 24 * scale)), 23 * scale);
+            }
+        }
+
         // Coordinates use the source image's top-left corner, independent of screen size.
         public Vector2 ImageToScreen(Vector2 normalized)
         {
@@ -67,8 +83,11 @@ namespace WebNotifications
             {
                 if (map == null) return Vector2.one;
                 var area = FitArea;
-                float fit = Mathf.Min(area.width / map.width, area.height / map.height);
-                return new Vector2(map.width, map.height) * fit * zoom;
+                var view = Viewport;
+                float cover = Mathf.Max(view.width / map.width, view.height / map.height);
+                float campusFit = Mathf.Min(area.width / (map.width * CampusFootprint.x),
+                    area.height / (map.height * CampusFootprint.y));
+                return new Vector2(map.width, map.height) * Mathf.Min(cover, campusFit) * zoom;
             }
         }
 
@@ -165,7 +184,7 @@ namespace WebNotifications
         }
 
         private static bool CanStart(Vector2 point) => Viewport.Contains(point) &&
-            !CampusScreenLayout.NavigationArea.Contains(point) && !ZoomControlsRect.Contains(point);
+            !CampusScreenLayout.NavigationArea.Contains(point) && !ZoomControlsRect.Contains(point) && !AttributionRect.Contains(point);
         private void TrackDrag(Vector2 point)
         {
             if ((point - gestureOrigin).sqrMagnitude > Mathf.Pow(8f * CampusScreenLayout.Scale, 2))
@@ -276,7 +295,7 @@ namespace WebNotifications
                 {
                     var backdrop = new Rect(Vector2.zero, area.size);
                     GUI.DrawTexture(backdrop, blur, ScaleMode.ScaleAndCrop, false);
-                    CampusTheme.Fill(backdrop, new Color(.13f, .19f, .19f, .60f));
+                    CampusTheme.Fill(backdrop, new Color(.94f, .95f, .93f, .58f));
                 }
                 GUI.DrawTexture(new Rect(origin, size), dimmed && blur != null ? (Texture)blur : map,
                     ScaleMode.StretchToFill, true);
@@ -284,7 +303,23 @@ namespace WebNotifications
             GUI.EndGroup();
 
             GetComponent<SmartleadCourseCubes>()?.DrawMapOverlay(this);
-            if (detail == null || !detail.IsNotificationPanelOpen) DrawZoomControls();
+            if (detail == null || !detail.IsNotificationPanelOpen)
+            {
+                DrawZoomControls();
+                DrawAttribution();
+            }
+        }
+
+        private void DrawAttribution()
+        {
+            if (attributionStyle == null)
+                attributionStyle = new GUIStyle(GUI.skin.box)
+                {
+                    alignment = TextAnchor.MiddleCenter, wordWrap = false, padding = new RectOffset(4, 4, 0, 0)
+                };
+            attributionStyle.fontSize = Mathf.RoundToInt(10 * CampusScreenLayout.Scale);
+            if (GUI.Button(AttributionRect, MapAttribution, attributionStyle) && CanSelectCourse)
+                Application.OpenURL(AttributionUrl);
         }
 
         private void DrawZoomControls()

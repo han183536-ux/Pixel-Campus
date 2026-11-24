@@ -34,14 +34,16 @@ namespace WebNotifications
         internal bool ShowsMapBackdrop(SmartleadWebView school) => tab == CampusTab.Website ||
             school.IsAuthenticated && !school.IsSchoolPageVisible;
 
+        private static float PanelHeaderHeight => 44 * CampusScreenLayout.Scale;
+
         private Rect PanelRect
         {
             get
             {
                 var content = CampusScreenLayout.CampusArea;
-                float padding = 12 * CampusScreenLayout.Scale;
-                return new Rect(content.x + padding, content.y, Mathf.Max(1, content.width - 2 * padding),
-                    Mathf.Max(1, content.height - padding));
+                float padding = CampusScreenLayout.ContentPadding;
+                return new Rect(content.x + padding, content.y + padding, Mathf.Max(1, content.width - 2 * padding),
+                    Mathf.Max(1, content.height - 2 * padding));
             }
         }
 
@@ -126,7 +128,7 @@ namespace WebNotifications
             trackingPanelPointer = true;
             panelPointerStart = position;
             panelStartScroll = PanelScroll(school).y;
-            pointerFromHandle = position.y < panel.y + 62 * CampusScreenLayout.Scale;
+            pointerFromHandle = position.y < panel.y + CampusScreenLayout.ContentPadding + PanelHeaderHeight;
         }
 
         private void MovePanelGesture(Vector2 position, SmartleadWebView school)
@@ -267,8 +269,11 @@ namespace WebNotifications
                 if (submitting)
                     GUI.Label(new Rect(titleX, safe.y + 31 * scale, titleWidth, 24 * scale),
                         "파일 선택 후 학교 화면에서 저장하세요.", caption);
+                var enabled = GUI.enabled;
+                GUI.enabled = enabled && !school.IsAssignmentUploadInProgress;
                 if (CampusTheme.BackButton(back))
                     school.CloseAssignmentDetail();
+                GUI.enabled = enabled;
                 if (!string.IsNullOrEmpty(school.AssignmentRenderStatus))
                 {
                     var content = CampusScreenLayout.ContentArea;
@@ -292,6 +297,7 @@ namespace WebNotifications
         private void DrawCampusPanel(SmartleadWebView school)
         {
             float scale = CampusScreenLayout.Scale;
+            float padding = CampusScreenLayout.ContentPadding;
             bool courseAlerts = showNotifications;
             bool activityDetails = courseAlerts && school.IsOutlineActivityOpen;
             var panelTab = tab;
@@ -301,8 +307,9 @@ namespace WebNotifications
             panel.y += offset;
             panel.height -= offset;
             GUI.Box(panel, GUIContent.none, CampusTheme.GlassSheet);
-            CampusTheme.Fill(new Rect(panel.center.x - 16 * scale, panel.y + 9 * scale, 32 * scale, 3 * scale), CampusTheme.Line);
-            CampusTheme.Fill(new Rect(panel.x + 16 * scale, panel.y + 61 * scale, panel.width - 32 * scale, 1), CampusTheme.Line);
+            var header = new Rect(panel.x + padding, panel.y + padding, panel.width - 2 * padding, PanelHeaderHeight);
+            CampusTheme.Fill(new Rect(panel.center.x - 16 * scale, header.y, 32 * scale, 3 * scale), CampusTheme.Line);
+            CampusTheme.Fill(new Rect(header.x, header.yMax, header.width, 1), CampusTheme.Line);
             string title = activityDetails ? "자료 상세" : courseAlerts ? "과목 상세" : panelTab switch
             {
                 CampusTab.Website => "학교 공지",
@@ -310,20 +317,22 @@ namespace WebNotifications
                 CampusTab.Courses => "수강 과목",
                 _ => "계정"
             };
-            float titleInset = (activityDetails ? 56 : 16) * scale;
-            GUI.Label(new Rect(panel.x + titleInset, panel.y + 16 * scale, panel.width - titleInset - 16 * scale, 44 * scale),
+            var back = new Rect(header.x, header.y, header.height, header.height);
+            float titleX = activityDetails ? back.xMax + padding : header.x;
+            GUI.Label(new Rect(titleX, header.y, Mathf.Max(1, header.xMax - titleX), header.height),
                 title, CampusTheme.Heading);
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && !panelPointerMoved && Time.frameCount > suppressPanelClicksUntil;
             if (panelPointerMoved) GUIUtility.hotControl = 0;
-            if (activityDetails && CampusTheme.BackButton(new Rect(panel.x + 8 * scale, panel.y + 16 * scale, 44 * scale, 44 * scale)))
+            if (activityDetails && CampusTheme.BackButton(back))
             {
                 BackWithinPanel(school);
                 GUI.enabled = enabled;
                 return;
             }
-            var contentRect = new Rect(panel.x + 14 * scale, panel.y + 67 * scale, panel.width - 28 * scale,
-                Mathf.Max(1, panel.height - 80 * scale));
+            float contentTop = header.yMax + padding;
+            var contentRect = new Rect(header.x, contentTop, header.width,
+                Mathf.Max(1, panel.yMax - padding - contentTop));
             GUILayout.BeginArea(contentRect);
             ref Vector2 position = ref PanelScroll(school);
             position = GUILayout.BeginScrollView(position);
@@ -357,28 +366,27 @@ namespace WebNotifications
 
         private void DrawBottomNavigation(SmartleadWebView school)
         {
-            var area = CampusScreenLayout.NavigationArea;
-            float s = CampusScreenLayout.Scale;
-            bool mapBackdrop = ShowsMapBackdrop(school);
-            if (mapBackdrop)
+            var area = CampusScreenLayout.NavigationBarArea;
+            if (ShowsMapBackdrop(school))
             {
-                area = new Rect(area.x + 12 * s, area.y + 3 * s, area.width - 24 * s, area.height - 7 * s);
                 GUI.Box(area, GUIContent.none, CampusTheme.GlassNavigation);
             }
             else
             {
-                CampusTheme.Fill(area, Color.white);
-                CampusTheme.Fill(new Rect(area.x, area.y, area.width, 1), CampusTheme.Line);
+                var background = CampusScreenLayout.NavigationArea;
+                CampusTheme.Fill(background, Color.white);
+                CampusTheme.Fill(new Rect(background.x, background.y, background.width, 1), CampusTheme.Line);
             }
+            float inset = 4 * CampusScreenLayout.Scale;
             float width = area.width / NavigationTabs.Length;
             bool enabled = GUI.enabled;
             for (int i = 0; i < NavigationTabs.Length; i++)
             {
                 var (next, label, glyph) = NavigationTabs[i];
-                GUI.enabled = enabled && (school.IsAuthenticated || next == CampusTab.Website || next == CampusTab.Map || next == CampusTab.Account);
-                float verticalInset = (mapBackdrop ? 4 : 8) * s;
-                var rect = new Rect(area.x + i * width + 4 * s, area.y + verticalInset,
-                    Mathf.Max(1, width - 8 * s), area.height - 2 * verticalInset);
+                GUI.enabled = enabled && !school.IsAssignmentUploadInProgress &&
+                    (school.IsAuthenticated || next == CampusTab.Website || next == CampusTab.Map || next == CampusTab.Account);
+                var rect = new Rect(area.x + i * width + inset, area.y + inset,
+                    Mathf.Max(1, width - 2 * inset), area.height - 2 * inset);
                 if (CampusTheme.TabButton(rect, label, glyph, tab == next))
                     SelectTab(school, next);
             }

@@ -31,7 +31,7 @@ namespace WebNotifications
         public bool IsLoading { get; private set; }
         private string filter = "", search = "", selectedId, addUrl = "", addName = "", addStatus = "";
         private int days = 90;
-        private bool unreadOnly, adding, discovering, selectingSource, applicationsOnly, hideCompleted = true;
+        private bool filtersExpanded, unreadOnly, adding, discovering, selectingSource, applicationsOnly, hideCompleted = true;
         private string sourceSearch = "";
         private int visibleLimit = PageSize, drawnLimit;
         private int reloadIndex, workers;
@@ -391,14 +391,8 @@ namespace WebNotifications
             addStatus = error ?? "게시판을 추가했습니다.";
             discovering = false;
         }
-        public void Draw(GUIStyle label, float width)
+        private void DrawFilterControls(GUIStyle label, float scale)
         {
-            float scale = CampusScreenLayout.Scale;
-            var previousFilters = (filter, search, unreadOnly, days, applicationsOnly, hideCompleted);
-            GUILayout.BeginVertical(GUI.skin.box);
-            GUILayout.Label("제목·내용 검색", CampusTheme.SectionTitle);
-            search = GUILayout.TextField(search, 100, GUILayout.MinHeight(44 * scale));
-            GUILayout.Space(6 * scale);
             GUILayout.BeginHorizontal();
             bool canRefresh = GUI.enabled;
             GUI.enabled = canRefresh && !IsLoading;
@@ -446,6 +440,23 @@ namespace WebNotifications
                 if (shownSources > 30) GUILayout.Label("찾는 출처의 이름을 입력해 주세요.", CampusTheme.Caption);
             }
             if (filter != "") GUILayout.Label("출처: " + (boards.Find(b => b.url == filter)?.name ?? filter), CampusTheme.Caption);
+        }
+
+        public void Draw(GUIStyle label, float width)
+        {
+            float scale = CampusScreenLayout.Scale;
+            var previousFilters = (filter, search, unreadOnly, days, applicationsOnly, hideCompleted);
+            GUILayout.BeginVertical(GUI.skin.box);
+            GUILayout.BeginHorizontal();
+            search = CampusTheme.SearchField(search, "제목·내용 검색", 100);
+            GUILayout.Space(8 * scale);
+            if (CampusTheme.FilterButton(filtersExpanded)) filtersExpanded = !filtersExpanded;
+            GUILayout.EndHorizontal();
+            if (filtersExpanded)
+            {
+                GUILayout.Space(6 * scale);
+                DrawFilterControls(label, scale);
+            }
             GUILayout.EndVertical();
             if (previousFilters != (filter, search, unreadOnly, days, applicationsOnly, hideCompleted))
             {

@@ -14,7 +14,7 @@ namespace WebNotifications
         public static readonly Color CourseMarker = new Color32(181, 211, 252, 255);
         public static readonly Color Muted = new Color32(81, 88, 103, 255);
         public static readonly Color Line = new Color32(224, 227, 235, 255);
-        public static readonly Color MapGround = new Color32(225, 235, 218, 255);
+        public static readonly Color MapGround = new Color32(240, 242, 238, 255);
         public static readonly Color MapScrim = new Color32(13, 21, 35, 121);
 
         private static GUISkin skin;
@@ -30,10 +30,10 @@ namespace WebNotifications
         public static GUIStyle GlassNavigation { get; private set; }
         public static GUIStyle Navigation { get; private set; }
         public static GUIStyle NavigationSelected { get; private set; }
-        private static GUIStyle badge;
-        private static Texture2D noticeGlyph, dot, chevron, deadlineFade;
+        private static GUIStyle badge, mapBadge, mapMarkerFace, mapMarkerActive, mapMarkerBack, mapMarkerShadow;
+        private static Texture2D noticeGlyph, dot, chevron, deadlineFade, searchGlyph, filterGlyph;
         private static Texture2D[] tabGlyphs;
-        private static GUIStyle cardTitle, rowButton, sectionBadge, fileBadgeLabel, tabLabel, tabSelectedLabel;
+        private static GUIStyle cardTitle, rowButton, sectionBadge, fileBadgeLabel, tabLabel, tabSelectedLabel, searchField;
 
         // Enter only during OnGUI and restore the previous skin after the screen is drawn.
         public static GUISkin Enter()
@@ -42,8 +42,13 @@ namespace WebNotifications
             if (skin == null) Initialize(previous);
             GUI.skin = skin;
             float scale = CampusScreenLayout.Scale;
+            int padding = Mathf.RoundToInt(CampusScreenLayout.ContentPadding);
+            var boxPadding = skin.box.padding;
+            boxPadding.left = boxPadding.right = boxPadding.top = boxPadding.bottom = padding;
             skin.label.fontSize = skin.button.fontSize =
                 skin.textField.fontSize = skin.textArea.fontSize = Mathf.RoundToInt(15 * scale);
+            searchField.fontSize = skin.textField.fontSize;
+            searchField.padding.left = Mathf.RoundToInt(36 * scale);
             Primary.fontSize = Secondary.fontSize = skin.button.fontSize;
             Heading.fontSize = Mathf.RoundToInt(23 * scale);
             LargeTitle.fontSize = Mathf.RoundToInt(31 * scale);
@@ -55,6 +60,7 @@ namespace WebNotifications
             tabLabel.fontSize = tabSelectedLabel.fontSize = Mathf.RoundToInt(12 * scale);
             sectionBadge.fontSize = fileBadgeLabel.fontSize = Mathf.RoundToInt(12 * scale);
             badge.fontSize = Mathf.RoundToInt(11 * scale);
+            mapBadge.fontSize = Mathf.RoundToInt(12 * scale);
             return previous;
         }
 
@@ -80,6 +86,9 @@ namespace WebNotifications
             dot = Tile(Color.white, Color.white);
             chevron = CreateChevron();
             deadlineFade = CreateDeadlineFade();
+            searchGlyph = CreateTabGlyph(new[] { 4, 10, 5, 7, 7, 5, 10, 4, 13, 5, 15, 7, 16, 10,
+                15, 13, 13, 15, 10, 16, 7, 15, 5, 13, 4, 10 }, new[] { 14, 14, 20, 20 });
+            filterGlyph = CreateTabGlyph(new[] { 4, 5, 20, 5, 14, 12, 14, 18, 10, 20, 10, 12, 4, 5 });
             tabGlyphs = new[]
             {
                 CreateTabGlyph(new[] { 4, 4, 10, 4, 12, 6, 14, 4, 20, 4, 20, 18, 14, 18, 12, 20, 10, 18, 4, 18, 4, 4 },
@@ -102,11 +111,11 @@ namespace WebNotifications
             skin.button.wordWrap = true;
             skin.box = Control(original.box, Ink, surface, surface, surface, surface);
             skin.box.font = skin.font;
-            skin.box.padding = new RectOffset(14, 14, 12, 12);
             var field = Tile(new Color32(232, 235, 242, 255), Line);
             skin.textField = Control(original.textField, Ink, field, field, focus, focus);
             skin.textArea = Control(original.textArea, Ink, field, field, focus, focus);
             skin.textField.font = skin.textArea.font = skin.font;
+            searchField = new GUIStyle(skin.textField) { alignment = TextAnchor.MiddleLeft };
             skin.settings.cursorColor = Ink;
             skin.settings.selectionColor = Selection;
 
@@ -116,6 +125,19 @@ namespace WebNotifications
             NavigationSelected = Control(skin.button, Accent, selected, selected, pressed, focus);
             badge = Control(skin.button, Color.white, accent, accent, accent, accent);
             badge.padding = new RectOffset();
+            var navy = new Color32(21, 60, 111, 255);
+            var face = Tile(navy, Color.white, 2);
+            var activeFace = Tile(Accent, Color.white, 2);
+            var backFace = Tile(new Color32(212, 231, 255, 255), navy);
+            var shadowColor = new Color32(12, 25, 47, 100);
+            var markerShadow = Tile(shadowColor, shadowColor);
+            var countFace = Tile(Color.white, navy);
+            mapMarkerFace = Control(skin.box, Color.white, face, face, face, face);
+            mapMarkerActive = Control(skin.box, Color.white, activeFace, activeFace, activeFace, activeFace);
+            mapMarkerBack = Control(skin.box, Color.white, backFace, backFace, backFace, backFace);
+            mapMarkerShadow = Control(skin.box, Color.white, markerShadow, markerShadow, markerShadow, markerShadow);
+            mapBadge = Control(skin.button, navy, countFace, countFace, countFace, countFace);
+            mapBadge.padding = new RectOffset();
             Body = new GUIStyle(skin.label)
             {
                 wordWrap = true, alignment = TextAnchor.MiddleLeft, padding = new RectOffset()
@@ -308,25 +330,31 @@ namespace WebNotifications
             return texture;
         }
 
-        public static void DrawNoticeIcon(Rect area, int count, float scale, Color tint)
+        public static void DrawNoticeIcon(Rect area, int count, float scale, Color tint, bool mapMarker = false)
         {
             if (Event.current.type != EventType.Repaint) return;
+            if (mapMarker)
+                GUI.Box(new Rect(area.position + new Vector2(1, 3) * scale, area.size), GUIContent.none, mapMarkerShadow);
             int layers = Mathf.Clamp(count, 1, 3);
+            float layerOffset = (mapMarker ? 3 : 4) * scale;
             for (int layer = layers - 1; layer > 0; layer--)
             {
-                var back = new Rect(area.x + layer * 4 * scale, area.y - layer * 4 * scale, area.width, area.height);
-                GUI.Box(back, GUIContent.none, Secondary);
+                var back = new Rect(area.x + layer * layerOffset, area.y - layer * layerOffset, area.width, area.height);
+                GUI.Box(back, GUIContent.none, mapMarker ? mapMarkerBack : Secondary);
             }
-            GUI.Box(area, GUIContent.none, GUI.skin.box);
+            var face = mapMarker ? (count > 0 ? mapMarkerActive : mapMarkerFace) : GUI.skin.box;
+            GUI.Box(area, GUIContent.none, face);
             var previous = GUI.color;
-            GUI.color = tint;
-            GUI.DrawTexture(new Rect(area.x + 7 * scale, area.y + 7 * scale,
-                area.width - 14 * scale, area.height - 14 * scale), noticeGlyph);
+            GUI.color = previous * (mapMarker ? Color.white : tint);
+            float inset = (mapMarker ? 6 : 7) * scale;
+            GUI.DrawTexture(new Rect(area.x + inset, area.y + inset,
+                area.width - 2 * inset, area.height - 2 * inset), noticeGlyph);
             GUI.color = previous;
             if (count > 0)
             {
-                var number = new Rect(area.xMax - 10 * scale, area.y - 7 * scale, 29 * scale, 19 * scale);
-                GUI.Label(number, count > 99 ? "99+" : count.ToString(), badge);
+                var number = mapMarker ? new Rect(area.xMax - 19 * scale, area.y - 6 * scale, 27 * scale, 20 * scale) :
+                    new Rect(area.xMax - 10 * scale, area.y - 7 * scale, 29 * scale, 19 * scale);
+                GUI.Label(number, count > 99 ? "99+" : count.ToString(), mapMarker ? mapBadge : badge);
             }
         }
 
@@ -382,6 +410,45 @@ namespace WebNotifications
             return texture;
         }
 
+        public static string SearchField(string text, string placeholder, int maxLength)
+        {
+            float scale = CampusScreenLayout.Scale;
+            var target = GUILayoutUtility.GetRect(1, 44 * scale, GUILayout.ExpandWidth(true));
+            string value = GUI.TextField(target, text, maxLength, searchField);
+            if (Event.current.type == EventType.Repaint)
+            {
+                DrawControlGlyph(searchGlyph, new Vector2(target.x + 18 * scale, target.center.y), 20 * scale, Muted);
+                if (value.Length == 0)
+                {
+                    int inset = searchField.padding.left;
+                    GUI.Label(new Rect(target.x + inset, target.y, Mathf.Max(0, target.width - inset), target.height),
+                        placeholder, Caption);
+                }
+            }
+            return value;
+        }
+
+        public static bool FilterButton(bool expanded)
+        {
+            float scale = CampusScreenLayout.Scale;
+            float size = 44 * scale;
+            var target = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size));
+            bool clicked = GUI.Button(target, new GUIContent("", expanded ? "필터 닫기" : "필터 열기"),
+                expanded ? NavigationSelected : GUI.skin.button);
+            if (Event.current.type == EventType.Repaint)
+                DrawControlGlyph(filterGlyph, target.center, 22 * scale, expanded ? Accent : Muted);
+            return clicked;
+        }
+
+        private static void DrawControlGlyph(Texture2D glyph, Vector2 center, float size, Color tint)
+        {
+            var previous = GUI.color;
+            if (!GUI.enabled) tint.a *= .45f;
+            GUI.color = previous * tint;
+            GUI.DrawTexture(new Rect(center - Vector2.one * size * .5f, Vector2.one * size), glyph);
+            GUI.color = previous;
+        }
+
         public static bool BackButton(Rect target)
         {
             bool clicked = GUI.Button(target, new GUIContent("", "뒤로"), Navigation);
@@ -425,21 +492,25 @@ namespace WebNotifications
             bool disclosure = false, string fileBadge = null, Color fileTint = default)
         {
             float s = CampusScreenLayout.Scale;
+            float padding = CampusScreenLayout.ContentPadding;
             bool hasCaption = !string.IsNullOrWhiteSpace(caption);
             bool hasMarker = marker != Color.white;
             bool hasSection = !string.IsNullOrEmpty(section);
             bool hasFileBadge = !string.IsNullOrEmpty(fileBadge);
-            float inset = (hasFileBadge ? 61 : hasMarker ? 29 : 14) * s;
-            float trailing = (hasSection ? 73 : 35) * s;
+            float markerWidth = (courseCard ? 4 : 8) * s;
+            float fileBadgeWidth = 42 * s, sectionWidth = 34 * s, arrowSize = 18 * s;
+            float inset = padding + (hasFileBadge ? fileBadgeWidth + padding : hasMarker ? markerWidth + padding : 0);
+            float trailing = 2 * padding + arrowSize + (hasSection ? sectionWidth + padding : 0);
             float textWidth = Mathf.Max(1, width - inset - trailing);
             float titleHeight = cardTitle.CalcHeight(new GUIContent(title), textWidth);
             float captionHeight = hasCaption ? 3 * s + Caption.CalcHeight(new GUIContent(caption), textWidth) : 0;
-            float height = Mathf.Max((courseCard ? 72 : 56) * s, 24 * s + titleHeight + captionHeight);
+            float height = Mathf.Max((courseCard ? 44 : 56) * s, 2 * padding + titleHeight + captionHeight);
             var area = GUILayoutUtility.GetRect(1, height, GUILayout.ExpandWidth(true));
             bool clicked = GUI.Button(area, new GUIContent("", title), rowButton);
             if (Event.current.type == EventType.Repaint)
             {
                 var previousColor = GUI.color;
+                float top = area.center.y - (titleHeight + captionHeight) * .5f;
                 if (hasMarker)
                 {
                     bool highlighted = GUI.enabled && area.Contains(Event.current.mousePosition);
@@ -458,18 +529,20 @@ namespace WebNotifications
                     var markerColor = highlighted ? Color.white : marker;
                     if (courseCard)
                     {
-                        var stripe = new Rect(area.x + 13 * s, area.center.y - 16 * s, 4 * s, 32 * s);
+                        float stripeHeight = Mathf.Min(32 * s, area.height - 2 * padding);
+                        var stripe = new Rect(area.x + padding, area.center.y - stripeHeight * .5f, markerWidth, stripeHeight);
                         GUI.DrawTexture(stripe, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, markerColor, 0, stripe.width * .5f);
                     }
                     else
                     {
-                        var markerArea = new Rect(area.x + 12 * s, area.y + 17 * s, 8 * s, 8 * s);
+                        float markerTop = top + Mathf.Max(0, (cardTitle.lineHeight - markerWidth) * .5f);
+                        var markerArea = new Rect(area.x + padding, markerTop, markerWidth, markerWidth);
                         GUI.color = markerColor;
                         GUI.DrawTexture(markerArea, dot);
                     }
                 }
                 GUI.color = expanded ? Accent : Muted;
-                var arrow = new Rect(area.xMax - 25 * s, area.center.y - 9 * s, 18 * s, 18 * s);
+                var arrow = new Rect(area.xMax - padding - arrowSize, area.center.y - arrowSize * .5f, arrowSize, arrowSize);
                 var previousMatrix = GUI.matrix;
                 if (disclosure || expanded)
                     GUIUtility.RotateAroundPivot(disclosure && expanded ? -90 : 90, arrow.center);
@@ -477,22 +550,21 @@ namespace WebNotifications
                 GUI.matrix = previousMatrix;
                 GUI.color = previousColor;
 
-                float top = area.center.y - (titleHeight + captionHeight) * .5f;
                 float available = Mathf.Max(1, area.width - inset - trailing);
                 GUI.Label(new Rect(area.x + inset, top, available, titleHeight), title, cardTitle);
                 if (hasCaption)
                     GUI.Label(new Rect(area.x + inset, top + titleHeight + 3 * s, available, captionHeight - 3 * s), caption, Caption);
                 if (hasSection)
-                    GUI.Label(new Rect(area.xMax - 65 * s, area.center.y - 13 * s, 34 * s, 26 * s),
+                    GUI.Label(new Rect(arrow.x - padding - sectionWidth, area.center.y - 13 * s, sectionWidth, 26 * s),
                         new GUIContent(section, "분반 " + section), sectionBadge);
                 if (hasFileBadge)
                 {
-                    var badgeArea = new Rect(area.x + 10 * s, area.center.y - 16 * s, 42 * s, 32 * s);
+                    var badgeArea = new Rect(area.x + padding, area.center.y - 16 * s, fileBadgeWidth, 32 * s);
                     GUI.DrawTexture(badgeArea, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, fileTint, 0, CornerRadius);
                     GUI.Label(badgeArea, fileBadge, fileBadgeLabel);
                 }
             }
-            GUILayout.Space(8 * s);
+            GUILayout.Space(padding);
             return clicked;
         }
     }

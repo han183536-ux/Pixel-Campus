@@ -12,7 +12,7 @@ namespace WebNotifications
     {
         [Serializable] private class Attachment { public string name, url; }
         [Serializable] private class Notice { public int id, courseId, week; public long dueAt, createdAt, startAt, modifiedAt, lateDueAt; public string sender, title, body, url, courseName, courseCode, type, submissionStatus, gradingStatus, submissionText, attendanceStatus, progressText, availabilityText; public bool read, readKnown, submitted, submissionKnown, detailLoaded, submissionFilesKnown, detailTruncated, attendanceKnown, attended, attendancePeriodKnown, attendanceStale; public Attachment[] submittedFiles, instructionFiles, instructionImages; }
-        [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered, previewsIncomplete; public Notice[] items; }
+        [Serializable] private class Capture { public string kind, nonce, page, source, error, username, password, requestId, html, url; public int count, total, courseId, index; public bool found, unreadLimited, historyLimited, countOnly, unreadUnknown, authenticated, remember, automatic, passwordEntered, previewsIncomplete, canEditSubmission; public Notice[] items; }
         private const string RememberIdKey = "smartlead.remember-id";
         private const string SavedIdKey = "smartlead.saved-id";
         private const string AutomaticLoginKey = "smartlead.automatic-login";
@@ -44,6 +44,19 @@ namespace WebNotifications
         private WebViewObject assignmentView;
         private bool assignmentVisible, assignmentAttachmentVisible;
         private bool assignmentSubmissionVisible, refreshAssignmentAfterSubmission;
+        private bool assignmentEditAvailable;
+        [Serializable] private sealed class UploadFile { public string name; public long size; }
+        [Serializable] private sealed class UploadPacket
+        {
+            public string kind, nonce, page, requestId, status, data, error, url;
+            public int fileIndex, index;
+            public UploadFile[] files;
+            public string[] acceptedTypes;
+        }
+        private string assignmentUploadId, assignmentUploadStatus;
+        private float assignmentUploadDeadline;
+        private bool assignmentUploadDraft;
+        internal bool IsAssignmentUploadInProgress => assignmentUploadId != null;
         private SubmissionConversionBridge submissionConversion;
         private bool submissionConversionPrepared;
         [Serializable] private class ConversionSettings { public string nonce; public bool available; }
@@ -52,8 +65,8 @@ namespace WebNotifications
         private string pendingAssignmentHtml;
         private const int AssignmentCacheLimit = 8;
         private const float AssignmentCacheSeconds = 120;
-        private readonly Dictionary<string, (string body, float receivedAt)> assignmentCache =
-            new Dictionary<string, (string body, float receivedAt)>(StringComparer.Ordinal);
+        private readonly Dictionary<string, (string body, bool canEditSubmission, float receivedAt)> assignmentCache =
+            new Dictionary<string, (string body, bool canEditSubmission, float receivedAt)>(StringComparer.Ordinal);
         private static string assignmentFontRule;
         private const int MaxDocumentCharsWithEmbeddedFont = 400_000;
         public string AssignmentRenderStatus { get; private set; }
@@ -347,6 +360,12 @@ namespace WebNotifications
             if (assignmentVisible)
             {
                 if (assignmentSubmissionVisible) submissionConversion?.Poll(view.EvaluateJS);
+                if (assignmentUploadId != null && Time.realtimeSinceStartup >= assignmentUploadDeadline)
+                {
+                    ShowAssignmentUploadReply(new UploadPacket { requestId = assignmentUploadId, status = "error",
+                        error = "저장 결과를 확인하지 못했습니다. 제출 상태를 확인해 주세요." });
+                    StopAssignmentUpload();
+                }
                 ApplyWebViewMargins();
                 if (pendingAssignmentHtml != null && assignmentView != null && assignmentView.IsInitialized())
                 {
@@ -622,6 +641,11 @@ namespace WebNotifications
                 if (data.kind == "logout_complete") FinishLogout();
                 return;
             }
+            if (data.kind == "assignment_upload_reply")
+            {
+                ReceiveAssignmentUploadReply(message);
+                return;
+            }
             if (data.kind == "course_outline")
             {
                 ReceiveCourseOutline(data);
@@ -644,7 +668,8 @@ namespace WebNotifications
                 if (Array.Exists(assignmentDocumentParts, part => part == null)) return;
                 assignmentDocumentDeadline = 0; assignmentDocumentRequest = null;
                 string body = string.Concat(assignmentDocumentParts);
-                if (!data.previewsIncomplete) CacheAssignment(assignmentDocumentTarget.url, body);
+                assignmentEditAvailable = data.canEditSubmission;
+                if (!data.previewsIncomplete) CacheAssignment(assignmentDocumentTarget.url, body, assignmentEditAvailable);
                 RenderAssignmentDocument(body);
                 assignmentDocumentParts = null;
                 return;
@@ -1402,6 +1427,9 @@ namespace WebNotifications
                     androidForceDarkMode: 1);
             }
             assignmentDocumentTarget = item;
+            assignmentEditAvailable = hasCache && saved.canEditSubmission;
+            assignmentUploadStatus = null;
+            assignmentUploadDraft = false;
             assignmentVisible = true; assignmentAttachmentVisible = false;
             assignmentDocumentNonce = Guid.NewGuid().ToString("N");
             view.SetVisibility(false); courseCubes?.SetVisible(false);
@@ -1411,7 +1439,7 @@ namespace WebNotifications
             return true;
         }
 
-        private void CacheAssignment(string url, string body)
+        private void CacheAssignment(string url, string body, bool canEditSubmission)
         {
             if (body.Length > 250_000) return;
             if (assignmentCache.Count >= AssignmentCacheLimit && !assignmentCache.ContainsKey(url))
@@ -1422,7 +1450,7 @@ namespace WebNotifications
                     if (entry.Value.receivedAt < time) { oldest = entry.Key; time = entry.Value.receivedAt; }
                 if (oldest != null) assignmentCache.Remove(oldest);
             }
-            assignmentCache[url] = (body, Time.unscaledTime);
+            assignmentCache[url] = (body, canEditSubmission, Time.unscaledTime);
         }
 
         private void RefreshAssignmentDetail()
@@ -1470,6 +1498,9 @@ namespace WebNotifications
                 .Replace("__DOCUMENT_NONCE__", assignmentDocumentNonce)
                 .Replace("__COURSE_TITLE__", courseTitle)
                 .Replace("__ASSIGNMENT_TITLE__", assignmentTitle)
+                .Replace("__ASSIGNMENT_UPLOAD_STATUS__", System.Net.WebUtility.HtmlEncode(
+                    assignmentUploadStatus ?? "파일을 선택한 뒤 업로드·저장을 누르세요."))
+                .Replace("__ASSIGNMENT_UPLOAD_OPTIONS__", assignmentUploadDraft ? "open" : "")
                 .Replace("__ASSIGNMENT_CONTENT__", content);
             AssignmentRenderStatus = null;
             assignmentRendererDeadline = Time.unscaledTime + 10;
@@ -1494,10 +1525,16 @@ namespace WebNotifications
 
         private void ReceiveAssignmentAction(string message)
         {
-            if (!assignmentVisible || string.IsNullOrEmpty(message) || message.Length > 8000) return;
+            if (!assignmentVisible || string.IsNullOrEmpty(message) || message.Length > 64000) return;
             Capture data;
             try { data = JsonUtility.FromJson<Capture>(message); } catch { return; }
             if (data == null || data.nonce != assignmentDocumentNonce || assignmentSubmissionVisible) return;
+            if (data.kind == "assignment_upload")
+            {
+                ReceiveAssignmentUpload(message);
+                return;
+            }
+            if (assignmentUploadId != null) return;
             if (data.kind == "assignment_submission") { OpenAssignmentSubmission(); return; }
             if (data.kind != "assignment_attachment" || !SchoolPage(data.url)) return;
             var path = new Uri(data.url).AbsolutePath;
@@ -1506,12 +1543,91 @@ namespace WebNotifications
             assignmentView.LoadURL(data.url); // Only an explicitly selected file, never the original assignment page.
         }
 
+        private void ReceiveAssignmentUpload(string message)
+        {
+            UploadPacket packet;
+            try { packet = JsonUtility.FromJson<UploadPacket>(message); } catch { return; }
+            if (packet == null || !Guid.TryParseExact(packet.requestId, "N", out _) ||
+                assignmentAttachmentVisible || assignmentDocumentTarget == null || view == null) return;
+            if (packet.status == "begin" && assignmentUploadId == null)
+            {
+                var script = Resources.Load<TextAsset>("SmartleadAssignmentUpload");
+                var url = AssignmentSubmissionPage(assignmentDocumentTarget.url, false);
+                if (!IsAuthenticated || !SchoolPage(currentUrl) || string.IsNullOrEmpty(nonce) ||
+                    !assignmentEditAvailable || script == null || url == null ||
+                    packet.files == null || packet.files.Length == 0 ||
+                    Array.Exists(packet.files, file => file == null || file.size <= 0 ||
+                        string.IsNullOrWhiteSpace(file.name) || file.name.Length > 255))
+                {
+                    ShowAssignmentUploadReply(new UploadPacket { requestId = packet.requestId, status = "unsupported",
+                        error = "파일 정보나 제출 조건을 확인해 주세요. 이 과제는 추가 제출 옵션이 필요할 수 있습니다." });
+                    return;
+                }
+                assignmentUploadId = packet.requestId;
+                assignmentUploadDeadline = Time.realtimeSinceStartup + 315;
+                packet.nonce = nonce;
+                packet.url = url;
+                view.EvaluateJS(script.text.Replace("__ASSIGNMENT_UPLOAD_REQUEST__", JsonUtility.ToJson(packet)));
+                return;
+            }
+            if (assignmentUploadId != packet.requestId) return;
+            if (packet.status == "chunk" && packet.fileIndex >= 0 && packet.index >= 0 &&
+                !string.IsNullOrEmpty(packet.data) && packet.data.Length <= 48000)
+                view.EvaluateJS("window.PixelCampusAssignmentUpload?.receive(" + JsonUtility.ToJson(packet) + ");");
+            else if (packet.status == "cancel")
+            {
+                ShowAssignmentUploadReply(new UploadPacket { requestId = packet.requestId, status = "error",
+                    error = "첨부 파일을 읽지 못했습니다. 파일을 다시 선택해 주세요." });
+                StopAssignmentUpload();
+            }
+        }
+
+        private void ReceiveAssignmentUploadReply(string message)
+        {
+            UploadPacket packet;
+            try { packet = JsonUtility.FromJson<UploadPacket>(message); } catch { return; }
+            if (packet == null || assignmentUploadId == null || packet.requestId != assignmentUploadId || !assignmentVisible) return;
+            ShowAssignmentUploadReply(packet);
+            if (packet.status is "pull" or "progress" or "constraints") return;
+            assignmentUploadId = null;
+            if (packet.status != "saved" && packet.status != "draft") return;
+            assignmentUploadStatus = packet.error;
+            assignmentUploadDraft = packet.status == "draft";
+            if (assignmentUploadDraft) assignmentEditAvailable = false;
+            assignmentCache.Remove(assignmentDocumentTarget.url);
+            RefreshAssignmentDetail();
+        }
+
+        private void ShowAssignmentUploadReply(UploadPacket packet)
+        {
+            packet.nonce = packet.page = null;
+            assignmentView?.EvaluateJS("window.PixelCampusUpload?.receive(" + JsonUtility.ToJson(packet) + ");");
+        }
+
+        private void StopAssignmentUpload()
+        {
+            if (assignmentUploadId == null) return;
+            assignmentUploadId = null;
+            view?.EvaluateJS("window.PixelCampusAssignmentUpload?.cancel();");
+        }
+
+        private static string AssignmentSubmissionPage(string url, bool canEditSubmission)
+        {
+            if (!SchoolPage(url)) return null;
+            var address = new Uri(url);
+            if (address.AbsolutePath != "/mod/assign/view.php" && address.AbsolutePath != "/mod/ubassign/view.php") return null;
+            var ids = Regex.Matches(address.Query, @"(?:^\?|&)id=([^&]*)");
+            if (ids.Count != 1 || !Regex.IsMatch(ids[0].Groups[1].Value, @"\A[1-9][0-9]*\z")) return null;
+            return address.GetLeftPart(UriPartial.Path) + "?id=" + ids[0].Groups[1].Value +
+                (canEditSubmission ? "&action=editsubmission" : "");
+        }
+
         public void OpenAssignmentSubmission()
         {
-            if (!assignmentVisible || assignmentDocumentTarget == null || view == null ||
-                !SchoolPage(assignmentDocumentTarget.url)) return;
-            var path = new Uri(assignmentDocumentTarget.url).AbsolutePath;
-            if (path != "/mod/assign/view.php" && path != "/mod/ubassign/view.php") return;
+            if (!assignmentVisible || assignmentAttachmentVisible || assignmentSubmissionVisible || assignmentUploadId != null || !IsAuthenticated ||
+                assignmentDocumentTarget == null || view == null) return;
+            var submissionPage = AssignmentSubmissionPage(assignmentDocumentTarget.url, assignmentEditAvailable);
+            if (submissionPage == null) return;
             assignmentCache.Remove(assignmentDocumentTarget.url);
             assignmentDocumentRequest = null; assignmentDocumentParts = null;
             assignmentDocumentDeadline = assignmentRendererDeadline = 0;
@@ -1525,13 +1641,14 @@ namespace WebNotifications
             // Reuse the authenticated WebView so HttpOnly cookies and the school's
             // CSRF/session fields never have to be copied into a separate uploader.
             view.SetVisibility(!websiteNoticesVisible);
-            view.LoadURL(assignmentDocumentTarget.url);
+            view.LoadURL(submissionPage);
         }
 
         public void CloseAssignmentDetail() => CloseAssignmentDetail(returnToCampus: false);
 
         internal void CloseAssignmentDetail(bool returnToCampus)
         {
+            if (assignmentUploadId != null) return;
             bool restoreCollector = assignmentSubmissionVisible;
             if (!returnToCampus && restoreCollector)
             {
@@ -1568,6 +1685,9 @@ namespace WebNotifications
             assignmentVisible = assignmentAttachmentVisible = false;
             if (assignmentSubmissionVisible) view?.SetVisibility(false);
             assignmentSubmissionVisible = refreshAssignmentAfterSubmission = false;
+            assignmentEditAvailable = false;
+            StopAssignmentUpload();
+            assignmentUploadStatus = null;
             submissionConversion?.Dispose();
             assignmentDocumentRequest = assignmentDocumentHtml = assignmentDocumentNonce = null;
             pendingAssignmentHtml = null; AssignmentRenderStatus = null; assignmentRendererDeadline = 0;

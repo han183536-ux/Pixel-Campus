@@ -117,13 +117,14 @@ namespace WebNotifications
         {
             string name = Compact(course.data.courseName);
             string code = course.data.courseCode ?? "";
+            // Normalized centers of the OpenStreetMap building footprints in CampusMap.png.
             if (name.Contains("게임프로그래밍") || name.Contains("3차원모델링") || name.Contains("3d모델링") ||
                 name.Contains("캡스톤") || code.StartsWith("603103-") || code.StartsWith("601104-") || code.StartsWith("603147-"))
-            { course.building = "공학관"; course.mapPosition = new Vector2(.181f, .402f); }
+            { course.building = "공학관"; course.mapPosition = new Vector2(.196835f, .474732f); }
             else if (name.Contains("커리어잉글") || name.Contains("careerenglish") || code.StartsWith("903180-"))
-            { course.building = "기초교육관"; course.mapPosition = new Vector2(.393f, .121f); }
+            { course.building = "기초교육관"; course.mapPosition = new Vector2(.425858f, .304804f); }
             else if (name.Contains("일본문화콘텐츠") || code.StartsWith("903190-"))
-            { course.building = "자연과학관"; course.mapPosition = new Vector2(.317f, .500f); }
+            { course.building = "자연과학관"; course.mapPosition = new Vector2(.314112f, .516375f); }
             else course.building = null;
         }
 
@@ -182,9 +183,9 @@ namespace WebNotifications
             if (!visible || !map.IsMapVisible || detail != null && detail.IsNotificationPanelOpen) return;
             float s = CampusScreenLayout.Scale;
             bool compact = map.IsOverview;
-            float tileWidth = (compact ? 44 : 86) * s;
-            float tileHeight = (compact ? 44 : 80) * s;
-            float slotSpacing = tileWidth + 8 * s;
+            float tileWidth = (compact ? 62 : 86) * s;
+            float tileHeight = (compact ? 60 : 92) * s;
+            float gap = 8 * s;
             if (mapLabel == null)
             {
                 mapLabel = new GUIStyle(GUI.skin.box)
@@ -195,64 +196,106 @@ namespace WebNotifications
             mapLabel.fontSize = Mathf.RoundToInt(11 * s);
             // Keep marker hit targets in the safe area above the floating navigation.
             var area = CampusScreenLayout.CampusArea;
+            var viewport = new Rect(Vector2.zero, area.size);
+            var zoomControls = CampusMapView.ZoomControlsRect;
+            zoomControls.position -= area.position;
+            var attribution = CampusMapView.AttributionRect;
+            attribution.position -= area.position;
             bool allowClick = map.CanSelectCourse && (detail == null || !detail.SuppressCampusInput);
             // Stable slots prevent deadline reordering from moving subjects between markers.
-            var mapCourses = new List<Course>(ordered);
-            mapCourses.Sort((a, b) => StringComparer.Ordinal.Compare(a.data.Key, b.data.Key));
-            var markers = new List<(Course course, Rect tile)>();
-            GUI.BeginGroup(area);
-            foreach (var course in mapCourses)
+            var mapCourses = ordered.FindAll(course => course.building != null);
+            mapCourses.Sort((a, b) =>
             {
-                if (course.building == null) continue;
-                int slot = 0, count = 0;
-                foreach (var other in mapCourses)
-                    if (other.building == course.building) { if (other == course) slot = count; count++; }
-                var anchor = map.ImageToScreen(course.mapPosition) - area.position;
-                if (!new Rect(Vector2.zero, area.size).Contains(anchor)) continue;
-                float groupHalfWidth = (count * slotSpacing - 8 * s) * .5f;
-                float centerX = area.width >= groupHalfWidth * 2
-                    ? Mathf.Clamp(anchor.x, groupHalfWidth, area.width - groupHalfWidth) : anchor.x;
-                float x = centerX + (slot - (count - 1) * .5f) * slotSpacing;
-                var tile = new Rect(x - tileWidth * .5f, anchor.y - (compact ? 22 : 31) * s, tileWidth, tileHeight);
-                // At overview zoom, neighboring buildings are closer than readable cards.
-                // Keep a connector to the true building while separating overlapping cards.
-                foreach (var placed in markers)
-                    if (tile.Overlaps(placed.tile)) { tile.y = placed.tile.yMax + 6 * s; }
-                if (!tile.Overlaps(new Rect(Vector2.zero, area.size))) continue;
-                markers.Add((course, tile));
-                var previousMatrix = GUI.matrix;
-                var previousColor = GUI.color;
-                var end = new Vector2(tile.center.x, tile.y + (compact ? 22 : 29) * s);
-                var delta = end - anchor;
-                GUI.color = CampusTheme.Accent;
-                GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, anchor);
-                GUI.DrawTexture(new Rect(anchor.x, anchor.y, delta.magnitude, 2 * s), Texture2D.whiteTexture);
-                GUI.matrix = previousMatrix;
-                GUI.color = previousColor;
+                int buildingOrder = StringComparer.Ordinal.Compare(a.building, b.building);
+                return buildingOrder != 0 ? buildingOrder : StringComparer.Ordinal.Compare(a.data.Key, b.data.Key);
+            });
+            var markers = new List<(Course course, Rect tile)>();
+            var occupied = new List<Rect> { zoomControls, attribution };
+            for (int start = 0; start < mapCourses.Count;)
+            {
+                var building = mapCourses[start];
+                int end = start + 1;
+                while (end < mapCourses.Count && mapCourses[end].building == building.building) end++;
+                var anchor = map.ImageToScreen(building.mapPosition) - area.position;
+                if (viewport.Contains(anchor))
+                {
+                    int count = end - start;
+                    int maxColumns = Mathf.Max(1, Mathf.FloorToInt((viewport.width + gap) / (tileWidth + gap)));
+                    int maxRows = Mathf.Max(1, Mathf.FloorToInt((viewport.height + gap) / (tileHeight + gap)));
+                    int columns = Mathf.Min(count, Mathf.Min(maxColumns, Mathf.Max(2, (count + maxRows - 1) / maxRows)));
+                    int rows = (count + columns - 1) / columns;
+                    float width = columns * (tileWidth + gap) - gap;
+                    float height = rows * (tileHeight + gap) - gap;
+                    var preferred = new Rect(anchor.x - width * .5f, anchor.y - height * .5f - 4 * s, width, height);
+                    var group = PlaceMarkerGroup(preferred, viewport, occupied, gap);
+                    occupied.Add(group);
+                    for (int slot = 0; slot < count; slot++)
+                    {
+                        int row = slot / columns;
+                        int rowCount = Mathf.Min(columns, count - row * columns);
+                        float rowWidth = rowCount * (tileWidth + gap) - gap;
+                        float x = group.center.x - rowWidth * .5f + slot % columns * (tileWidth + gap);
+                        var tile = new Rect(x, group.y + row * (tileHeight + gap), tileWidth, tileHeight);
+                        if (tile.Overlaps(viewport)) markers.Add((mapCourses[start + slot], tile));
+                    }
+                }
+                start = end;
             }
-            // Draw every connector behind the markers, including shared-building links.
+            GUI.BeginGroup(area);
             foreach (var (course, tile) in markers)
             {
                 string title = string.IsNullOrWhiteSpace(course.data.courseName) ? "과목 " + course.data.courseId : course.data.courseName;
                 int notices = course.data.notifications + course.data.messages;
-                float iconScale = compact ? .78f * s : s;
-                float iconSize = 38 * iconScale;
-                var icon = new Rect(tile.center.x - iconSize * .5f, tile.y + (compact ? 7 : 9) * s, iconSize, iconSize);
-                CampusTheme.DrawNoticeIcon(icon, notices, iconScale, notices > 0 ? CampusTheme.Accent : CampusTheme.Muted);
+                float iconSize = (compact ? 46 : 48) * s;
+                var icon = new Rect(tile.center.x - iconSize * .5f, tile.y + 8 * s, iconSize, iconSize);
+                CampusTheme.DrawNoticeIcon(icon, notices, s, Color.white, mapMarker: true);
                 if (!compact)
                 {
-                    GUI.Box(new Rect(tile.x, tile.y + 47 * s, tile.width, 33 * s), title, mapLabel);
+                    var labelArea = new Rect(tile.x, tile.y + 59 * s, tile.width, 33 * s);
+                    GUI.Box(labelArea, title, mapLabel);
                     if (course.data.DeadlineColor != Color.white)
-                        CampusTheme.Fill(new Rect(tile.x + 16 * s, tile.y + 47 * s, tile.width - 32 * s, 2 * s), course.data.DeadlineColor);
+                        CampusTheme.Fill(new Rect(labelArea.x + 16 * s, labelArea.y, labelArea.width - 32 * s, 2 * s), course.data.DeadlineColor);
                 }
                 bool enabled = GUI.enabled;
-                var screenTile = new Rect(tile.position + area.position, tile.size);
-                GUI.enabled = enabled && allowClick && !screenTile.Overlaps(CampusMapView.ZoomControlsRect);
+                GUI.enabled = enabled && allowClick && !tile.Overlaps(zoomControls) && !tile.Overlaps(attribution);
                 var marker = new GUIContent("", title + " · " + course.data.Summary.Replace("\n", " "));
                 if (GUI.Button(tile, marker, GUIStyle.none)) detail?.OpenCourseNotifications(course.data.Key, title);
                 GUI.enabled = enabled;
             }
             GUI.EndGroup();
+        }
+
+        private static Rect PlaceMarkerGroup(Rect preferred, Rect viewport, List<Rect> occupied, float gap)
+        {
+            float maxX = Mathf.Max(viewport.xMin, viewport.xMax - preferred.width);
+            float maxY = Mathf.Max(viewport.yMin, viewport.yMax - preferred.height);
+            Rect Clamp(float x, float y) => new Rect(Mathf.Clamp(x, viewport.xMin, maxX),
+                Mathf.Clamp(y, viewport.yMin, maxY), preferred.width, preferred.height);
+            bool Overlaps(Rect candidate) => occupied.Exists(rect => candidate.Overlaps(rect));
+            var closest = Clamp(preferred.x, preferred.y);
+            if (!Overlaps(closest)) return closest;
+
+            // Nearby free positions are bounded by the edges of other groups and map controls.
+            var xs = new List<float> { preferred.x };
+            var ys = new List<float> { preferred.y };
+            foreach (var rect in occupied)
+            {
+                xs.Add(rect.xMin - preferred.width - gap);
+                xs.Add(rect.xMax + gap);
+                ys.Add(rect.yMin - preferred.height - gap);
+                ys.Add(rect.yMax + gap);
+            }
+            float distance = float.PositiveInfinity;
+            foreach (float x in xs)
+            foreach (float y in ys)
+            {
+                var candidate = Clamp(x, y);
+                float squared = (candidate.position - preferred.position).sqrMagnitude;
+                if (squared >= distance || Overlaps(candidate)) continue;
+                distance = squared;
+                closest = candidate;
+            }
+            return closest;
         }
         private static void Release(UnityEngine.Object value) { if (value == null) return; if (Application.isPlaying) Destroy(value); else DestroyImmediate(value); }
         private static void ReleaseCourse(Course course) { Release(course.cube); Release(course.material); }

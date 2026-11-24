@@ -48,12 +48,206 @@ video{display:block;width:100%;aspect-ratio:16/9;max-height:70vh;border-radius:8
 audio{display:block;width:100%;margin:18px 0 6px}
 .media-error{display:block;font-size:14px;color:#a32929}
 .submission-action{position:sticky;bottom:0;z-index:10;margin-top:auto;padding:8px 0;background:var(--paper)}
-.submission-action a{display:block;min-height:44px;padding:11px 16px;border-radius:var(--radius);background:var(--accent);color:white;font-weight:600;text-align:center;text-decoration:none}
-.submission-action a:active{background:#004694}
+.submission-actions{display:flex;gap:8px;flex-wrap:wrap}
+.submission-actions button{display:block!important;flex:1;min-height:44px;padding:8px 12px;border:0;border-radius:var(--radius);background:var(--selection);color:var(--accent);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.submission-actions button[hidden]{display:none!important}
+.submission-actions button:disabled{opacity:.55;cursor:default}
+.submission-actions #assignment-upload{background:var(--accent);color:white}
+.submission-files{margin:4px 0 8px;font-size:14px;max-height:110px;overflow:auto}
+.submission-name-fields{display:flex;gap:8px;margin:4px 0 8px;font-size:14px}
+.submission-name-fields label{flex:1;min-width:0}
+.submission-name-fields input{display:block!important;width:100%;min-height:36px;border:1px solid var(--line);border-radius:var(--radius);padding:4px 8px;font:inherit}
+.submission-name-fields [hidden],.submission-name-fields[hidden]{display:none!important}
+.submission-warning{font-size:14px;color:#8c3a13;margin:4px 2px 8px}
+.submission-options{color:var(--muted);font-size:14px;margin:4px 0 0}
+.submission-options summary{cursor:pointer}
 .submission-hint{font-size:14px;color:var(--muted);margin:12px 2px 4px}
-</style></head><body><main><div class="course">__COURSE_TITLE__</div><h1>__ASSIGNMENT_TITLE__</h1><article>__ASSIGNMENT_CONTENT__</article><p id="submission-hint" class="submission-hint">학교 제출 화면에서 파일을 선택하고 저장하세요.</p><div class="submission-action"><a id="assignment-submit" href="#submission" aria-describedby="submission-hint">파일 첨부·제출</a></div></main>
+</style></head><body><main><div class="course">__COURSE_TITLE__</div><h1>__ASSIGNMENT_TITLE__</h1><article>__ASSIGNMENT_CONTENT__</article>
+<section class="submission-action" aria-label="과제 파일 제출">
+<p id="submission-hint" class="submission-hint" role="status">__ASSIGNMENT_UPLOAD_STATUS__</p>
+<p id="assignment-extension-warning" class="submission-warning" role="alert" hidden></p>
+<div id="assignment-name-fields" class="submission-name-fields" hidden>
+<label id="assignment-student-id-label" hidden>파일명에 넣을 학번<input id="assignment-student-id" type="text" inputmode="numeric" maxlength="24" autocomplete="off"></label>
+<label id="assignment-student-name-label" hidden>파일명에 넣을 이름<input id="assignment-student-name" type="text" maxlength="40" autocomplete="off"></label>
+</div>
+<ul id="assignment-files" class="submission-files" hidden></ul>
+<input id="assignment-file-picker" type="file" multiple hidden>
+<div class="submission-actions"><button id="assignment-attach" type="button">파일 첨부</button><button id="assignment-upload" type="button" hidden>업로드·저장</button></div>
+<details class="submission-options" id="assignment-options" __ASSIGNMENT_UPLOAD_OPTIONS__><summary>추가 제출 옵션</summary><a id="assignment-submit" href="#submission">학교 양식 · 최종 제출 확인</a></details>
+</section></main>
 <script nonce="__DOCUMENT_NONCE__">
-document.addEventListener('click',function(event){const link=event.target.closest('a[href]');if(!link)return;event.preventDefault();const kind=link===document.getElementById('assignment-submit')?'assignment_submission':'assignment_attachment';const packet=JSON.stringify({kind,nonce:'__DOCUMENT_NONCE__',url:kind==='assignment_attachment'?link.href:''});if(window.Unity&&typeof window.Unity.call==='function')window.Unity.call(packet);else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(packet);});
+const picker = document.getElementById('assignment-file-picker');
+const attach = document.getElementById('assignment-attach');
+const upload = document.getElementById('assignment-upload');
+const filesList = document.getElementById('assignment-files');
+const hint = document.getElementById('submission-hint');
+const options = document.getElementById('assignment-options');
+const warning = document.getElementById('assignment-extension-warning');
+const nameFields = document.getElementById('assignment-name-fields');
+const studentId = document.getElementById('assignment-student-id');
+const studentName = document.getElementById('assignment-student-name');
+let files = [], requestId = '';
+const chunkSize = 36000;
+const extensionPattern = /(?:\.tar\.(?:gz|bz2|xz)|\.[a-z0-9]{1,12})$/i;
+const instructions = (document.querySelector('article #intro, article .activity-description') ||
+  document.querySelector('article')).innerText;
+const filenameLabel = /^[\s\d.)-]*(?:제출[ \t]*)?파일[ \t]*(?:명|이름)[ \t]*(?:양식|형식|규칙)?(?:[ \t]*[:：=][ \t]*|은[ \t]+)(.+)$/;
+const formatLabel = /^[\s\d.)-]*(?:(?:제출[ \t]*)?(?:파일[ \t]*(?:형식|확장자)|확장자)|제출[ \t]*형식)[ \t]*[:：=][ \t]*(.+)$/;
+const aliases = new Map([
+  ['학번','studentId'], ['학생번호','studentId'], ['이름','studentName'], ['성명','studentName'], ['학생이름','studentName'],
+  ['과목명','course'], ['교과목명','course'], ['과제명','assignment'], ['과제제목','assignment'],
+  ['원래파일명','original'], ['원본파일명','original'], ['기존파일명','original'], ['순번','index']
+]);
+function readRule(label) {
+  const matches = instructions.split(/\r?\n/).map(line => line.match(label)?.[1].trim()).filter(Boolean);
+  const unique = [...new Set(matches)];
+  return unique.length === 1 ? unique[0] : '';
+}
+function readFilenameRule() {
+  const example = readRule(filenameLabel).replace(/\s+(?:으로|로)\s+(?:제출|저장|작성).*$/, '')
+    .replace(/^["'“‘]|["'”’]$/g, '').trim();
+  const extension = example.match(extensionPattern)?.[0] || '';
+  const stem = extension ? example.slice(0, -extension.length) : example;
+  if (!stem || stem.length > 120) return null;
+  const parts = stem.split(/([ _+.-]+)/).filter(Boolean).map(part => {
+    const wrapped = /^(?:\[([\p{L}\p{N}]+)\]|\{([\p{L}\p{N}]+)\}|\(([\p{L}\p{N}]+)\)|<([\p{L}\p{N}]+)>)$/u.exec(part);
+    const name = wrapped ? wrapped.slice(1).find(Boolean) : part;
+    const key = aliases.get(name);
+    if (key) return {key};
+    return !wrapped && /^[\p{L}\p{N} _+.-]+$/u.test(part) ? {text:part} : null;
+  });
+  if (parts.some(part => !part) || (!extension && !parts.some(part => part.key))) return null;
+  return {parts, extension:extension.toLowerCase()};
+}
+const filenameRule = readFilenameRule();
+const requestedFormats = readRule(formatLabel).split(/[,，/·|\s]+/)
+  .map(value => (value.startsWith('.') ? value : '.' + value).toLowerCase())
+  .filter(value => /^\.(pdf|zip|rar|7z|hwp|hwpx|docx?|xlsx?|pptx?|txt|csv|png|jpe?g|gif|mp[34]|mov|wav|c|cpp|cs|java|py|exe|tar(?:\.(?:gz|bz2|xz))?)$/.test(value));
+const instructionTypes = [...new Set(requestedFormats.length ? requestedFormats : [filenameRule?.extension].filter(Boolean))];
+function requiredByRule(key) { return filenameRule?.parts.some(part => part.key === key); }
+const safeNamePart = value => value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '');
+function planNames() {
+  const values = {
+    studentId:safeNamePart(studentId.value), studentName:safeNamePart(studentName.value),
+    course:safeNamePart(document.querySelector('.course').textContent),
+    assignment:safeNamePart(document.querySelector('h1').textContent)
+  };
+  const missing = filenameRule?.parts.some(part => part.key && part.key in values && !values[part.key]);
+  const names = files.map((file, index) => {
+    if (!filenameRule || missing) return file.name;
+    const extension = file.name.match(extensionPattern)?.[0] || '';
+    const substitutions = {...values, original:safeNamePart(extension ? file.name.slice(0, -extension.length) : file.name), index:String(index + 1)};
+    const stem = safeNamePart(filenameRule.parts.map(part => part.key ? substitutions[part.key] : part.text).join(''));
+    return stem && stem.length + extension.length <= 255 ? stem + extension : file.name;
+  });
+  const collide = names.some((name, index) => name !== files[index].name) &&
+    new Set(names.map(name => name.normalize('NFC').toLowerCase())).size < names.length;
+  return {names:collide ? files.map(file => file.name) : names, missing, collide};
+}
+function showExtensionWarning(types) {
+  if (!warning.hidden) return;
+  const allowed = (types || []).filter(type => typeof type === 'string' && type.trim()).map(type => type.trim().toLowerCase());
+  const differs = (file, group) => group.length > 0 && !group.some(type => {
+    if (type === '*' || type === '*.*') return true;
+    if (type.includes('/')) return !file.type || (type.endsWith('/*') ? file.type.startsWith(type.slice(0, -1)) : file.type === type);
+    return file.name.toLowerCase().endsWith(type.startsWith('.') ? type : '.' + type);
+  });
+  if (!files.some(file => differs(file, instructionTypes) || differs(file, allowed))) return;
+  warning.textContent = '허용된 확장자와 다른 파일이 있습니다. 원래 형식으로 업로드를 계속하며 학교에서 거절할 수 있습니다.';
+  warning.hidden = false;
+}
+function send(data) {
+  const packet = JSON.stringify({...data, nonce:'__DOCUMENT_NONCE__'});
+  if (packet.length > 64000) return false;
+  if (typeof window.Unity?.call === 'function') window.Unity.call(packet);
+  else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(packet);
+  else return false;
+  return true;
+}
+function setBusy(busy) {
+  attach.disabled = upload.disabled = studentName.disabled = studentId.disabled = busy;
+}
+function showFiles() {
+  const {names, missing, collide} = planNames();
+  studentId.parentElement.hidden = !requiredByRule('studentId');
+  studentName.parentElement.hidden = !requiredByRule('studentName');
+  nameFields.hidden = !files.length || (studentId.parentElement.hidden && studentName.parentElement.hidden);
+  filesList.replaceChildren(...files.map((file, index) => {
+    const item = document.createElement('li');
+    const displayName = names[index] === file.name ? file.name : file.name + ' → ' + names[index];
+    item.textContent = displayName + ' · ' + new Intl.NumberFormat('ko-KR', {maximumFractionDigits:1}).format(file.size / 1024) + ' KB';
+    return item;
+  }));
+  filesList.hidden = upload.hidden = !files.length;
+  if (files.length) hint.textContent = missing ? '아래 값을 입력하면 안내에 맞춰 업로드 이름을 변경합니다.' :
+    collide ? '같은 업로드 이름이 생겨 선택한 파일명을 유지합니다.' : '첨부한 파일을 확인한 뒤 업로드·저장을 누르세요.';
+}
+attach.addEventListener('click', () => picker.click());
+studentId.addEventListener('input', showFiles);
+studentName.addEventListener('input', showFiles);
+picker.addEventListener('change', () => {
+  files = Array.from(picker.files);
+  picker.value = '';
+  warning.hidden = true;
+  warning.textContent = '';
+  showFiles();
+});
+upload.addEventListener('click', () => {
+  if (!files.length || requestId) return;
+  const {names} = planNames();
+  showExtensionWarning([]);
+  requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+  setBusy(true);
+  hint.textContent = '제출 조건을 확인하는 중…';
+  if (!send({kind:'assignment_upload', status:'begin', requestId,
+    files:files.map(({size}, index) => ({name:names[index],size}))})) {
+    requestId = '';
+    setBusy(false);
+    hint.textContent = '업로드 연결을 사용할 수 없습니다.';
+  }
+});
+window.PixelCampusUpload = {async receive(reply) {
+  if (reply.requestId !== requestId || !requestId) return;
+  if (reply.status === 'constraints') {
+    showExtensionWarning(reply.acceptedTypes);
+    return;
+  }
+  if (reply.status === 'pull') {
+    try {
+      const file = files[reply.fileIndex];
+      if (!file || reply.index < 0 || reply.index * chunkSize >= file.size) throw Error();
+      const part = file.slice(reply.index * chunkSize, (reply.index + 1) * chunkSize);
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(part);
+      });
+      if (reply.requestId === requestId)
+        send({kind:'assignment_upload', status:'chunk', requestId, fileIndex:reply.fileIndex, index:reply.index, data});
+    } catch {
+      send({kind:'assignment_upload', status:'cancel', requestId});
+    }
+    return;
+  }
+  hint.textContent = reply.error || '';
+  if (reply.status === 'progress') return;
+  requestId = '';
+  setBusy(false);
+  if (reply.status === 'saved' || reply.status === 'draft') {
+    files = [];
+    showFiles();
+  }
+  if (reply.status === 'unsupported' || reply.status === 'draft') options.open = true;
+}};
+document.addEventListener('click', function(event) {
+  const link = event.target.closest('a[href]');
+  if (!link) return;
+  event.preventDefault();
+  if (requestId) return;
+  const kind = link === document.getElementById('assignment-submit') ? 'assignment_submission' : 'assignment_attachment';
+  send({kind, url:kind === 'assignment_attachment' ? link.href : ''});
+});
 document.querySelectorAll('.attachment-preview').forEach(function(image){
   function showError(){
     image.hidden=true;

@@ -78,8 +78,10 @@ namespace WebNotifications
             return seconds > 0 ? value + " 남음" : "마감 " + value + " 지남";
         }
         public static float Scale => Mathf.Clamp(Screen.width / 390f, .8f, 3f);
+        internal static float ContentPadding => 12f * Scale;
         public static float HeaderHeight => 58f * Scale;
-        private static float NavigationHeight => 60f * Scale;
+        private static float NavigationBarHeight => 53f * Scale;
+        private static float NavigationHeight => NavigationBarHeight + ContentPadding;
         public static Rect SafeArea
         {
             get
@@ -111,6 +113,15 @@ namespace WebNotifications
             {
                 var area = SafeArea;
                 return new Rect(area.x, area.yMax - NavigationHeight, area.width, NavigationHeight);
+            }
+        }
+        internal static Rect NavigationBarArea
+        {
+            get
+            {
+                var area = NavigationArea;
+                float padding = ContentPadding;
+                return new Rect(area.x + padding, area.y, area.width - 2 * padding, NavigationBarHeight);
             }
         }
         public static Rect CameraRect

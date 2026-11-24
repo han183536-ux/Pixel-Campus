@@ -1,0 +1,173 @@
+(async () => {
+  const request = __ASSIGNMENT_UPLOAD_REQUEST__;
+  const origin = 'https://smartlead.hallym.ac.kr';
+  if (location.origin !== origin) return;
+  const page = location.href;
+  const send = (status, data = {}) => {
+    const packet = JSON.stringify({...data, kind:'assignment_upload_reply', status,
+      requestId:request.requestId, nonce:request.nonce, page});
+    if (typeof window.Unity?.call === 'function') window.Unity.call(packet);
+    else if (typeof window.chrome?.webview?.postMessage === 'function') window.chrome.webview.postMessage(packet);
+  };
+  const fail = (message, status = 'error') => {
+    throw {message, status};
+  };
+  const unavailable = () => fail('이 과제는 학교 양식에서 추가 확인이 필요합니다.', 'unsupported');
+  const positive = value => /^[1-9]\d*$/.test(String(value || ''));
+  const assignment = new URL(request.url);
+  const edit = new URL(assignment);
+  edit.searchParams.set('action', 'editsubmission');
+  const id = assignment.searchParams.get('id');
+  if (assignment.origin !== origin || !/^\/mod\/(?:assign|ubassign)\/view\.php$/.test(assignment.pathname) ||
+      !positive(id) || assignment.search !== '?id=' + id || !Array.isArray(request.files) ||
+      !request.files.length || request.files.some(file => !file.name || !Number.isSafeInteger(file.size) || file.size < 1)) {
+    send('error', {error:'과제나 첨부 파일 정보를 확인할 수 없습니다.'});
+    return;
+  }
+
+  window.PixelCampusAssignmentUpload?.cancel();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 300000);
+  let pending;
+  const bridge = {
+    cancel() { controller.abort(); },
+    receive(packet) {
+      if (!pending || packet.requestId !== request.requestId || packet.fileIndex !== pending.fileIndex ||
+          packet.index !== pending.index) return;
+      const receive = pending.resolve;
+      pending = null;
+      receive(packet.data);
+    }
+  };
+  window.PixelCampusAssignmentUpload = bridge;
+  const abort = () => pending?.reject(new Error('transfer_aborted'));
+  controller.signal.addEventListener('abort', abort, {once:true});
+  const fetchSchool = (url, init) => fetch(url, {...init, credentials:'same-origin', signal:controller.signal});
+  const decodePage = async response => {
+    const address = new URL(response.url || assignment.href);
+    if (address.origin !== origin || /^\/login(?:[/.]|$)/.test(address.pathname))
+      fail('학교 로그인 상태를 확인한 뒤 다시 시도해 주세요.');
+    if (!response.ok || address.pathname !== assignment.pathname) unavailable();
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    if (doc.querySelector('body.notloggedin, input[name="logintoken"], form[action*="/login/"]'))
+      fail('학교 로그인 상태를 확인한 뒤 다시 시도해 주세요.');
+    return {doc, address};
+  };
+  function findFileManager(doc, itemId) {
+    for (const script of doc.querySelectorAll('script:not([src])')) {
+      const source = script.textContent;
+      const marker = /\bM\.form_filemanager\.init\s*\(\s*\w+\s*,\s*(?=\{)/g;
+      for (const match of source.matchAll(marker)) {
+        const start = match.index + match[0].length;
+        let depth = 0, quoted = false, escaped = false;
+        for (let end = start; end < source.length; end++) {
+          const character = source[end];
+          if (quoted) {
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') quoted = false;
+          } else if (character === '"') quoted = true;
+          else if (character === '{') depth++;
+          else if (character === '}' && --depth === 0) {
+            try {
+              const options = JSON.parse(source.slice(start, end + 1));
+              if (String(options.itemid) === itemId) return options;
+            } catch { /* Unsupported widget format. */ }
+            break;
+          }
+        }
+      }
+    }
+    unavailable();
+  }
+  function fileChunk(fileIndex, index) {
+    if (controller.signal.aborted) throw new Error('transfer_aborted');
+    return new Promise((resolve, reject) => {
+      pending = {fileIndex, index, resolve, reject};
+      send('pull', {fileIndex, index});
+    });
+  }
+  const savedNames = [];
+  let saving = false;
+  try {
+    const {doc, address} = await decodePage(await fetchSchool(edit.href, {cache:'no-store'}));
+    if (address.searchParams.get('id') !== id) unavailable();
+    const item = doc.querySelector('form input[type="hidden"][name="files_filemanager"]');
+    const form = item?.closest('form');
+    if (!form || !positive(item.value) || (form.getAttribute('method') || '').toLowerCase() !== 'post') unavailable();
+    const destination = new URL(form.getAttribute('action') || address.href, address);
+    const fields = new FormData(form);
+    const saveButton = form.querySelector('[name="submitbutton"]:not([disabled])');
+    if (destination.origin !== origin || destination.pathname !== assignment.pathname || destination.username ||
+        destination.password || fields.get('action') !== 'savesubmission' || String(fields.get('id')) !== id ||
+        !fields.get('sesskey') || !saveButton ||
+        form.querySelector('textarea[name]:not([disabled]),select[name]:not([disabled]),[contenteditable="true"],input[name]:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([disabled])'))
+      unavailable();
+    fields.set('submitbutton', saveButton.value || saveButton.textContent || '저장');
+    const manager = findFileManager(doc, item.value);
+    const picker = manager.filepicker;
+    // Moodle's picker omits accepted_types[] when the school supplies an empty list.
+    const acceptedTypes = Array.isArray(picker?.accepted_types) ? picker.accepted_types :
+      picker?.accepted_types === '*' ? ['*'] : null;
+    const repository = Object.entries(picker?.repositories || {}).find(([key, value]) => positive(key) && value?.type === 'upload');
+    if (!repository || !positive(manager.context?.id) || !acceptedTypes || !Number.isInteger(Number(manager.maxfiles)) ||
+        !Number.isInteger(Number(manager.filecount))) unavailable();
+    send('constraints', {acceptedTypes});
+    const maxFiles = Number(manager.maxfiles);
+    if (maxFiles >= 0 && Number(manager.filecount) + request.files.length > maxFiles)
+      fail('이 과제의 첨부 가능 개수를 초과했습니다.');
+    const names = new Set(Object.values(manager.list || {}).map(item => item.filename).filter(Boolean));
+    for (const file of request.files) {
+      if (names.has(file.name)) fail('같은 이름의 파일이 있습니다. 파일명을 변경한 뒤 다시 첨부해 주세요.');
+      names.add(file.name);
+      if (Number(manager.maxbytes) > 0 && file.size > Number(manager.maxbytes))
+        fail('학교에서 허용한 파일 용량을 초과했습니다.');
+    }
+    for (const [fileIndex, file] of request.files.entries()) {
+      send('progress', {error:'파일 업로드 중 · ' + (fileIndex + 1) + '/' + request.files.length});
+      const parts = [];
+      for (let index = 0; index * 36000 < file.size; index++) {
+        const bytes = atob(await fileChunk(fileIndex, index));
+        if (bytes.length !== Math.min(36000, file.size - index * 36000)) fail('첨부 파일 읽기를 완료하지 못했습니다.');
+        parts.push(Uint8Array.from(bytes, byte => byte.charCodeAt(0)));
+      }
+      const upload = new FormData();
+      for (const [name, value] of Object.entries({
+        sesskey: fields.get('sesskey'), repo_id: repository[0], ctx_id: manager.context.id,
+        itemid: item.value, env: 'filemanager', savepath: '/', maxbytes: manager.maxbytes,
+        areamaxbytes: manager.areamaxbytes ?? -1, author: picker.author ?? ''
+      })) upload.append(name, value);
+      if (picker.defaultlicense) upload.append('license', picker.defaultlicense);
+      for (const type of acceptedTypes) upload.append('accepted_types[]', type);
+      upload.append('repo_upload_file', new Blob(parts), file.name);
+      const response = await fetchSchool(origin + '/repository/repository_ajax.php?action=upload', {method:'POST', body:upload, redirect:'error'});
+      const result = response.ok ? await response.json().catch(() => null) : null;
+      if (!result || result.error || result.event || String(result.id) !== item.value || !result.file)
+        fail('학교에서 파일을 받지 못했습니다. 파일 형식과 제한을 확인해 주세요.');
+      savedNames.push(result.file);
+    }
+    send('progress', {error:'학교에 첨부 파일 저장 중…'});
+    saving = true;
+    const saveResponse = await fetchSchool(assignment.href, {method:'POST', body:fields, redirect:'manual'});
+    const saved = await decodePage(saveResponse.type === 'opaqueredirect' ?
+      await fetchSchool(assignment.href, {cache:'no-store'}) : saveResponse);
+    if (saved.address.searchParams.get('id') !== id || saved.doc.querySelector('[name="files_filemanager"], .errorbox, .exceptionmessage'))
+      fail('저장을 확인하지 못했습니다. 제출 상태를 확인해 주세요.');
+    const links = [...saved.doc.querySelectorAll('a[href*="/submission_files/"]')].map(link => {
+      try { return decodeURIComponent(new URL(link.getAttribute('href'), assignment.href).pathname.split('/').pop()); }
+      catch { return ''; }
+    });
+    if (savedNames.some(name => !links.includes(name))) fail('저장을 확인하지 못했습니다. 제출 상태를 확인해 주세요.');
+    const draft = saved.doc.querySelector('.submissionstatusdraft, a[href*="action=submitforgrading"], input[value="submitforgrading"]');
+    send(draft ? 'draft' : 'saved', {error: draft ?
+      '파일이 초안에 저장됐습니다. 최종 제출 여부를 확인해 주세요.' : '첨부 파일이 학교에 저장됐습니다.'});
+  } catch (error) {
+    send(error?.status || 'error', {error: error?.status ? error.message : saving ?
+      '저장 결과를 확인하지 못했습니다. 제출 상태를 확인해 주세요.' :
+      '업로드를 완료하지 못했습니다. 연결 상태와 파일을 확인해 주세요.'});
+  } finally {
+    clearTimeout(timeout);
+    controller.signal.removeEventListener('abort', abort);
+    if (window.PixelCampusAssignmentUpload === bridge) delete window.PixelCampusAssignmentUpload;
+  }
+})();
