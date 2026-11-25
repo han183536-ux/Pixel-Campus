@@ -44,7 +44,7 @@
 5. 지도 위의 알림 아이콘을 눌러 과목 알림을 열거나 하단 **과목**에서 강의 정보를 확인합니다. 하단 **과제**에서 마감 일정과 제출 화면을 열 수 있습니다. **과제 다시 확인**으로 갱신하고 **학교 일정 보기**로 SmartLEAD 캘린더를 엽니다.
 6. **계정 → 로그아웃**을 누르면 기기에 저장된 로그인 정보와 자동 로그인 설정, 앱 WebView 쿠키가 지워지고 학교 로그인 화면으로 돌아갑니다. 다음 로그인은 학교 로그인 또는 통합인증으로 진행합니다.
 
-**새 PC에서 로그인 창이 열리지 않을 때** — 배포판에서는 ZIP 전체를 새 로컬 폴더에 다시 풉니다. 에디터 콘솔에 `DllNotFoundException`이 뜨면 `Assets/Plugins/UnityWebView/Windows/x64/WebView.dll`과 Visual C++ x64 런타임을 확인합니다. 이미 웹뷰가 열렸지만 학교 세션 확인이 15초 동안 응답하지 않으면 앱이 로그인 페이지를 한 번 엽니다. 이 페이지에서도 응답이 없으면 네트워크 연결을 확인한 뒤 **재접속**을 누릅니다.
+**새 PC에서 로그인 창이 열리지 않을 때** — Windows 배포판은 동봉한 WebView2를 먼저 사용합니다. 필요한 브라우저 파일이 없으면 Windows에 설치된 WebView2를 사용하고, 동봉한 브라우저가 초기화에 실패하면 앱을 한 번 다시 열어 시스템 WebView2로 시도합니다. 그래도 실패하면 **오류 정보 복사**로 화면의 진단 내용을 전달할 수 있습니다. 에디터 콘솔에 `DllNotFoundException`이 뜨면 `Assets/Plugins/UnityWebView/Windows/x64/WebView.dll`과 Visual C++ x64 런타임을 확인합니다. 이미 웹뷰가 열렸지만 학교 세션 확인에 15초 동안 응답이 없으면 앱이 로그인 페이지를 한 번 엽니다. 이 페이지에서도 응답이 없으면 네트워크 연결을 확인한 뒤 **재접속**을 누릅니다.
 
 Unity CLI가 설치된 Windows에서는 프로젝트 루트에서 에디터를 열고 컴파일을 확인할 수 있습니다.
 
@@ -62,7 +62,7 @@ unity build . --target StandaloneWindows64 --output ./Builds/Windows/PixelCampus
 .\tools\Build-WindowsPortable.ps1 -PlayerExe .\Builds\Windows\PixelCampus.exe -OutputZip .\Builds\PixelCampus-Windows-x64.zip
 ```
 
-WebView2 고정 버전은 앱과 함께 배포하므로 보안 업데이트 때는 패키징 스크립트의 Microsoft 배포 버전·주소·해시를 갱신해 새 ZIP을 배포합니다. 웹뷰 프로필은 사용자별 `%LOCALAPPDATA%\PixelCampus\WebView2`에 저장됩니다.
+WebView2 고정 버전은 앱과 함께 배포하므로 보안 업데이트 때는 패키징 스크립트의 Microsoft 배포 버전·주소·해시를 갱신해 새 ZIP을 배포합니다. 무설치 배포판은 사용자별 `%LOCALAPPDATA%\PixelCampus` 안에 동봉한 브라우저의 프로필(`WebView2`)과 Windows 브라우저의 프로필(`WebView2-System`)을 따로 저장합니다. 브라우저가 전환되면 학교에서 로그인을 한 번 더 요청할 수 있습니다.
 
 ## 표시 정보와 갱신
 

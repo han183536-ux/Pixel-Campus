@@ -97,24 +97,7 @@ namespace WebNotifications
         public bool LoginBrowserUnavailable { get; private set; }
         public bool LoginPluginMissing { get; private set; }
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-        internal static bool UsesBundledBrowser { get; private set; }
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        private static void ConfigureWindowsBrowser()
-        {
-            string playerFolder = System.IO.Path.GetDirectoryName(Application.dataPath);
-            string runtime = System.IO.Path.Combine(playerFolder, "WebView2Runtime");
-            UsesBundledBrowser = System.IO.Directory.Exists(runtime);
-            if (!UsesBundledBrowser) return;
-
-            Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime);
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER")))
-            {
-                string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER",
-                    System.IO.Path.Combine(localData, "PixelCampus", "WebView2"));
-            }
-        }
+        internal string LoginDiagnostic { get; private set; }
 #endif
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
@@ -202,6 +185,10 @@ namespace WebNotifications
             MessageStatus = "로그인 대기 중";
             try
             {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+                LoginDiagnostic = null;
+                if (!WindowsLoginBrowser.PrepareProfile()) { FailLoginBrowser("ProfileUnavailable"); return; }
+#endif
                 view = new GameObject("SmartLEAD Notification WebView").AddComponent<WebViewObject>();
                 view.transform.SetParent(transform);
                 view.Init(cb: Receive, err: _ => { HandleSchoolPageError("SmartLEAD 연결 실패"); if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면 연결에 실패했습니다. 뒤로 돌아가 다시 열어 주세요."; },
@@ -246,15 +233,32 @@ namespace WebNotifications
         private void FailLoginBrowser(string errorType = null)
         {
             loginStage = LoginStage.Idle;
-            LoginBrowserUnavailable = true;
             if (view != null)
             {
                 view.gameObject.SetActive(false);
                 Destroy(view.gameObject);
                 view = null;
             }
-            Status = "학교 로그인 창을 열지 못했습니다.";
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            if (errorType == nameof(DllNotFoundException) && WindowsLoginBrowser.TryPreloadPlugin())
+            {
+                InitializeLoginBrowser();
+                return;
+            }
+            if (errorType == null && WindowsLoginBrowser.TryStartSystemFallback())
+            {
+                Status = "Windows에 설치된 웹뷰로 다시 여는 중…";
+                Debug.Log("SmartLEAD WebView: bundled initialization failed; restarting with system WebView2.");
+                Application.Quit();
+                return;
+            }
+            LoginDiagnostic = WindowsLoginBrowser.DescribeFailure(errorType);
+            Debug.LogWarning("SmartLEAD WebView initialization failed: " + LoginDiagnostic);
+#else
             Debug.LogWarning("SmartLEAD WebView initialization failed" + (errorType == null ? "." : " (" + errorType + ")."));
+#endif
+            LoginBrowserUnavailable = true;
+            Status = "학교 로그인 창을 열지 못했습니다.";
         }
 
         private void NavigateForLogin(bool openForm)

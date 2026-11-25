@@ -5,6 +5,9 @@ namespace WebNotifications
 {
     public class NotificationDetailUI : MonoBehaviour
     {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        private float diagnosticCopiedUntil;
+#endif
         private enum CampusTab { Website, Map, Assignments, Account, Courses }
         private static readonly (CampusTab tab, string label, CampusTheme.TabGlyph glyph)[] NavigationTabs =
         {
@@ -297,12 +300,14 @@ namespace WebNotifications
                 CampusTheme.Fill(contentArea, CampusTheme.Paper);
                 GUILayout.BeginArea(new Rect(contentArea.x + padding, contentArea.y + padding,
                     contentArea.width - 2 * padding, contentArea.height - 2 * padding));
-#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-                if (SmartleadWebView.UsesBundledBrowser)
-                    GUILayout.Label("픽셀캠퍼스 배포 ZIP 전체를 새 로컬 폴더에 압축 해제한 뒤 앱을 다시 실행해 주세요.", CampusTheme.Body);
-                else
-#endif
+                GUILayout.Label(school.LoginDiagnostic, CampusTheme.Body);
+                if (CampusTheme.Action(Time.unscaledTime < diagnosticCopiedUntil ? "복사했습니다" : "오류 정보 복사", CampusTheme.Secondary))
+                {
+                    GUIUtility.systemCopyBuffer = school.LoginDiagnostic;
+                    diagnosticCopiedUntil = Time.unscaledTime + 2;
+                }
+#elif UNITY_EDITOR_WIN
                 if (school.LoginPluginMissing)
                 {
                     GUILayout.Label("Windows 로그인 플러그인을 불러올 수 없습니다. WebView.dll과 Visual C++ x64 런타임을 확인한 뒤 다시 실행해 주세요.", CampusTheme.Body);
