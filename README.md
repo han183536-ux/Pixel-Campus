@@ -33,14 +33,18 @@
 
 ## 실행
 
+**Windows 11 x64에서 앱으로 실행**하려면 [Windows 배포판](https://github.com/han183536-ux/Pixel-Campus/releases/latest)에서 `PixelCampus-Windows-x64.zip`을 내려받으세요. ZIP 전체를 로컬 폴더에 풀고 `PixelCampus.exe`를 엽니다. Unity, Visual C++ 재배포 패키지, WebView2를 따로 설치할 필요가 없습니다. 학교 로그인에는 인터넷 연결이 필요합니다.
+
+### Unity 에디터로 개발
+
 1. Unity Hub에서 **Unity 6.3 LTS (6000.3.26f1)**로 이 프로젝트를 엽니다.
-2. Windows x64에서는 [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)이 필요합니다. 저장소에는 Unity용 플러그인이 들어 있으며 런타임은 실행할 PC에 설치합니다.
+2. Windows x64 에디터는 PC에 설치된 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)과 [Visual C++ x64 런타임](https://aka.ms/vc14/vc_redist.x64.exe)을 사용합니다.
 3. 프로젝트를 열면 Game 뷰에 540×960(9:16) 세로 미리보기가 자동 적용됩니다. Android로 빌드 대상을 바꿔도 같은 비율을 적용합니다. `Tools > Pixel Campus > Open Portrait Demo`로 데모 씬을 열고 Play를 누릅니다. 비율을 다시 적용하려면 `Tools > Pixel Campus > Use Portrait Screen`을 선택합니다.
 4. 유효한 학교 세션이 남아 있으면 확인 후 바로 캠퍼스로 이동합니다. 세션이 없거나 만료됐으면 표시되는 SmartLEAD 페이지에서 직접 로그인합니다.
 5. 지도 위의 알림 아이콘을 눌러 과목 알림을 열거나 하단 **과목**에서 강의 정보를 확인합니다. 하단 **과제**에서 마감 일정과 제출 화면을 열 수 있습니다. **과제 다시 확인**으로 갱신하고 **학교 일정 보기**로 SmartLEAD 캘린더를 엽니다.
 6. **계정 → 로그아웃**을 누르면 기기에 저장된 로그인 정보와 자동 로그인 설정, 앱 WebView 쿠키가 지워지고 학교 로그인 화면으로 돌아갑니다. 다음 로그인은 학교 로그인 또는 통합인증으로 진행합니다.
 
-**새 PC에서 로그인 창이 열리지 않을 때** — 앱은 WebView가 준비된 뒤 학교에 기존 세션을 확인합니다. 학교가 로그인을 요구하거나 세션 확인에 15초 동안 응답이 없으면 로그인 페이지를 한 번 엽니다. 로그인 화면에서도 응답이 없으면 네트워크 상태를 확인하고 **재접속**을 누르세요. **학교 로그인 창을 열지 못했습니다**가 표시되면 Windows x64와 WebView2 Runtime 설치 상태를 확인하고 재접속하세요. 이때 앱은 WebView를 새로 초기화합니다.
+**새 PC에서 로그인 창이 열리지 않을 때** — 배포판에서는 ZIP 전체를 새 로컬 폴더에 다시 풉니다. 에디터 콘솔에 `DllNotFoundException`이 뜨면 `Assets/Plugins/UnityWebView/Windows/x64/WebView.dll`과 Visual C++ x64 런타임을 확인합니다. 이미 웹뷰가 열렸지만 학교 세션 확인이 15초 동안 응답하지 않으면 앱이 로그인 페이지를 한 번 엽니다. 이 페이지에서도 응답이 없으면 네트워크 연결을 확인한 뒤 **재접속**을 누릅니다.
 
 Unity CLI가 설치된 Windows에서는 프로젝트 루트에서 에디터를 열고 컴파일을 확인할 수 있습니다.
 
@@ -48,6 +52,17 @@ Unity CLI가 설치된 Windows에서는 프로젝트 루트에서 에디터를 �
 unity open . --until-ready
 unity recompile . --timeout 120 --non-interactive
 ```
+
+### Windows 배포 ZIP 만들기
+
+Windows x64 릴리스 플레이어를 빈 폴더에 빌드한 후 저장소 루트에서 다음 명령을 실행합니다. 처음 패키징할 때 스크립트가 Microsoft에서 x64 배포 파일을 받아 SHA-256을 검증합니다. 실제 배포에는 생성한 ZIP을 사용합니다.
+
+```powershell
+unity build . --target StandaloneWindows64 --output ./Builds/Windows/PixelCampus.exe
+.\tools\Build-WindowsPortable.ps1 -PlayerExe .\Builds\Windows\PixelCampus.exe -OutputZip .\Builds\PixelCampus-Windows-x64.zip
+```
+
+WebView2 고정 버전은 앱과 함께 배포하므로 보안 업데이트 때는 패키징 스크립트의 Microsoft 배포 버전·주소·해시를 갱신해 새 ZIP을 배포합니다. 웹뷰 프로필은 사용자별 `%LOCALAPPDATA%\PixelCampus\WebView2`에 저장됩니다.
 
 ## 표시 정보와 갱신
 

@@ -95,6 +95,27 @@ namespace WebNotifications
         private float loginDeadline;
         private bool triedLoginPage;
         public bool LoginBrowserUnavailable { get; private set; }
+        public bool LoginPluginMissing { get; private set; }
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        internal static bool UsesBundledBrowser { get; private set; }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void ConfigureWindowsBrowser()
+        {
+            string playerFolder = System.IO.Path.GetDirectoryName(Application.dataPath);
+            string runtime = System.IO.Path.Combine(playerFolder, "WebView2Runtime");
+            UsesBundledBrowser = System.IO.Directory.Exists(runtime);
+            if (!UsesBundledBrowser) return;
+
+            Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime);
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER")))
+            {
+                string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER",
+                    System.IO.Path.Combine(localData, "PixelCampus", "WebView2"));
+            }
+        }
+#endif
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
         private string nonce, currentUrl, script;
@@ -173,6 +194,7 @@ namespace WebNotifications
         private void InitializeLoginBrowser()
         {
             LoginBrowserUnavailable = false;
+            LoginPluginMissing = false;
             triedLoginPage = false;
             loginStage = LoginStage.Initializing;
             loginDeadline = Time.realtimeSinceStartup + 20;
@@ -214,7 +236,11 @@ namespace WebNotifications
 #endif
                 nextRefresh = Time.unscaledTime + 120;
             }
-            catch (Exception ex) { FailLoginBrowser(ex.GetType().Name); }
+            catch (Exception ex)
+            {
+                LoginPluginMissing = ex is DllNotFoundException;
+                FailLoginBrowser(ex.GetType().Name);
+            }
         }
 
         private void FailLoginBrowser(string errorType = null)

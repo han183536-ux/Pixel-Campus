@@ -1,0 +1,135 @@
+﻿MICROSOFT 소프트웨어 사용 조건
+
+MICROSOFT EDGE WEBVIEW2 런타임(수정 버전) 미리 보기
+
+본 라이선스 계약은 귀하와 Microsoft Corporation(또는 그 계열사 중 하나) 간에 체결되는 계약입니다. 본 계약은 위에 명시된 소프트웨어 및 모든 Microsoft 서비스 또는 소프트웨어 업데이트에 적용됩니다(해당 서비스 또는 업데이트에 신규 또는 추가 조건이 있는 경우 제외되며 다른 조건은 미래에 적용되고 이 경우 사전 업데이트된 소프트웨어 또는 서비스에 대한 귀하 또는 Microsoft의 권리가 변경되지 않음). 본 라이선스 조건을 준수하는 경우 아래와 같은 권한을 행사할 수 있습니다. 이 소프트웨어를 사용함으로써 귀하는 아래의 조건에 동의하게 됩니다.
+
+1. 설치 및 사용 권한.
+
+a) 일반 조항. 본 소프트웨어의 사본을 수량에 관계없이 장치에 설치하여 사용할 수 있습니다.
+
+b) 포함된 Microsoft 응용 프로그램. 소프트웨어에는 다른 Microsoft 응용 프로그램이 포함될 수 있습니다. 본 라이선스 조건은 다른 Microsoft 응용 프로그램에 다른 라이선스 조건이 제공되지 않는 한 포함된 응용 프로그램에 적용됩니다.
+
+c) 제3자 구성 요소. 소프트웨어에는 소프트웨어와 함께 제공되는 ThirdPartyNotices 파일에 명시될 수 있는 대로 별도의 법적 고지 사항이 있거나 다른 계약이 적용되는 제3자 구성 요소가 포함될 수 있습니다.
+
+d) 기타 서비스. 소프트웨어에는 독립적 제3자가 제공하는 것을 포함하여 기타 서비스, 웹 사이트, 링크, 콘텐츠, 자료, 통합 또는 응용 프로그램에 대한 액세스 포인트를 제공하거나 그에 의존하는 기능이 포함될 수 있습니다(“기타 서비스”). 기타 서비스 또는 기타 서비스에 의존하는 소프트웨어 기능의 사용은 별도의 조건으로 규준할 수 있으며 별도의 개인정보취급방침이 적용될 수 있습니다. 해당하는 경우, 귀하는 기타 서비스의 웹 사이트 또는 설정을 통해 이러한 별도 약관과 방침을 조회할 수 있습니다. 일부 지역에서는 기타 서비스를 사용하지 못할 수도 있습니다. 소프트웨어와 분리하여 소프트웨어를 Microsoft Azure 서비스로 호출하는 데 토큰을 사용할 수 없습니다.
+
+2. 배포 가능 코드. 소프트웨어에는 본 조항에 명시된 대로 귀하가 개발하는 응용 프로그램에서 배포(예: 제3자에게 제공) 권한이 부여되는 코드가 포함되어 있습니다.
+
+a) 유통권.
+
+i. 귀하는 소프트웨어의 개체 코드를 복사 및 배포할 수 있습니다; 과
+
+ii. 귀하는 응용 프로그램과 함께 배포하기로 선택한 배포 가능 코드를 응용 프로그램 배포자가 복사 및 배포할 수 있도록 허용할 수 있습니다.
+
+b) 배포 조건. 코드를 배포하려면:
+
+i. 귀하의 응용 프로그램 내에서 배포 가능 코드에 중요한 기능을 추가해야 합니다:
+
+ii. 아래 섹션 8에서 요구하는 바대로 최종 사용자에게 통지를 제공하는 것을 포함하여 최소한 본 계약에 준하는 소프트웨어 및 Microsoft를 보호할 수 있는 조항에 배포자와 외부의 최종 사용자가 동의하도록 해야 합니다;
+
+iii. 귀하는 Microsoft 다운로드 사이트를 포함하여 Microsoft URL에서 얻은 일체의 코드 등 Microsoft에서 직접 모든 코드를 입수해야 합니다. 그리고
+
+iv. 수정하지 않은 배포 가능 코드만을 근거로 하는 청구를 제외하고 응용 프로그램의 배포 또는 사용과 관련된 모든 청구(변호사 비용 포함)에 대하여 Microsoft를 면책하고 보호하며 방어하는 데 동의해야 합니다.
+
+c) 배포 제한. 귀하는 다음과 같은 행위를 할 수 없습니다:
+
+i. 귀하의 응용 프로그램에 Microsoft 상표 또는 상품 외장(Trade Dress)을 응용 프로그램에 사용하거나 응용 프로그램을 Microsoft에서 만들거나 보증한다고 광고하는 행위, 또는
+
+ii. 배포 가능한 코드의 소스 코드를 수정 또는 배포하여 배포 가능한 코드, 소프트웨어의 기타 부분 또는 Microsoft의 기타 지적 재산을 소스 코드 형식으로 공개 또는 배포해야 하거나 타인이 이를 수정할 권리가 있다고 규정하는 라이선스가 적용되도록 하는 행위, 또는
+
+iii. 제3자에게 이 소프트웨어에 접근할 수 있게 해주는 Microsoft 다운로드 사이트 또는 바로 가기를 제공하는 행위.
+
+3. 라이선스 범위. 본 소프트웨어는 판매되는 것이 아니라 그 라이선스가 허가되는 것입니다. 기타 모든 권리는 Microsoft가 보유합니다. 이러한 제한과 관계없이 관련 법률에서 귀하에게 더 많은 권한을 부여하지 않는 한, 귀하는 다음과 같은 행위를 해서는 안 됩니다(권리 없음):
+
+a) 특정한 방식으로만 사용할 수 있도록 허용된 소프트웨어의 경우 기술적 제한 사항을 위반하는 행위;
+
+b) 소프트웨어에 포함될 수 있는 특정 오픈 소스 구성 요소의 사용에 적용되는 제3자 사용 조건에서 요구하는 경우를 제외하고 소프트웨어 소스 코드의 리버스 엔지니어링, 디컴파일 또는 디스어셈블하거나 소스 코드의 추출을 시도하는 행위;
+
+c) 소프트웨어에서 Microsoft 또는 그 공급자의 통지를 제거, 최소화, 차단 또는 수정하는 행위;
+
+d) 법에 저촉되는 방식으로 소프트웨어를 사용하거나 맬웨어를 만들거나 전파하는 행위; 또는
+
+e) 소프트웨어를 공유, 게시, 임대 또는 대여하거나, 다른 사용자가 사용할 수 있도록 소프트웨어를 독립 실행형 제품으로 제공하거나, 제3자에게 소프트웨어 또는 본 계약을 양도하는 행위.
+
+4. 데이터.
+
+a) 데이터 수집. 소프트웨어에서 귀하 및 귀하의 최종 사용자의 소프트웨어 사용에 대한 정보를 수집하여 Microsoft에 전송할 수 있습니다. Microsoft는 이 정보를 사용하여 서비스를 제공하고 Microsoft 제품 및 서비스를 향상시킬 수 있습니다. 소프트웨어의 일부 기능을 통해 응용 프로그램의 사용자로부터 데이터를 수집할 수 있습니다. 응용 프로그램에서 데이터를 수집할 수 있도록 해당 기능을 사용하는 경우 응용 프로그램의 사용자에게 적절한 통지를 제공하는 등 관련 법률을 준수해야 합니다. https://aka.ms/privacy의 도움말 설명서 및 개인정보취급방침에서 데이터 수집 및 사용에 대한 자세한 내용을 알아볼 수 있습니다. 본 소프트웨어를 사용함으로써 귀하는 이러한 관행에 동의하게 됩니다.
+
+b) Microsoft Defender SmartScreen. Microsoft Defender SmartScreen(“SmartScreen”)은 기본값으로 활성화되어 있습니다. Microsoft Edge 개인 정보 보호 백서(https://learn.microsoft.com/en-us/microsoft-edge/privacy-whitepaper#smartscreen)에서 SmartScreen에 관한 추가 정보를 참조할 수 있습니다. SmartScreen을 비활성화하지 않는 경우, 아래 섹션 8에서 요구하는 대로 최종 사용자에게 통지해야 합니다.
+
+c) 개인 데이터 처리. Microsoft가 제품 또는 소프트웨어과 관련하여 개인 데이터의 처리자 또는 하위 처리자인 경우, Microsoft는 https://learn.microsoft.com/en-us/legal/gdpr에서 2018년 5월 25일부터 모든 고객에게 유효한 온라인 서비스 조건에 있는 유럽 연합 일반 데이터 보호 규정 조건을 약정합니다.
+
+5. 수출 제한. 귀하는 소프트웨어에 적용되는 모든 국내 및 국제 수출법 및 규정을 준수해야 하며, 이러한 법률 및 규정에는 목적지, 최종 사용자 및 최종 용도에 대한 제한이 포함됩니다. 수출 제한에 대한 자세한 내용을 보려면 https://aka.ms/exporting을 방문하십시오.
+
+6. 지원 서비스. Microsoft는 본 계약에 따라 소프트웨어에 대한 지원 서비스를 제공할 의무가 없습니다. 모든 지원은 “있는 그대로”, “오류를 포함하여” 어떤 종류의 보증도 없이 제공됩니다.
+
+7. H.264/AVC 비디오 표준.. 본 제품에는 H.264/AVC 코덱 기술이 포함되어 있습니다. MPEG LA LLC에서는 다음과 같은 고지 사항을 표시하도록 요구합니다:
+
+본 제품은 AVC 특허 포트폴리오 라이선스에 의거하여 소비자의 개인적 사용과 상업적 사용에 대해, (i) AVC 표준("AVC 비디오")에 따른 비디오 인코딩, 또는 (ii) 개인적 활동 및 비상업적 활동에 관여하는 소비자가 인코딩했거나 AVC 비디오를 제공할 수 있는 라이선스가 허가된 비디오 제공자로부터 취득한 AVC 비디오의 디코딩을 할 수 있는 라이선스를 허가합니다. 기타 용도로는 라이선스가 허가되지 않으며 묵시적으로도 허용되지 않습니다. 자세한 내용은 MPEG LA LLC에서 확인할 수 있습니다. HTTPS://WWW.MPEGLA.COM을 참조하십시오.
+
+명확히 하기 위해, 이 통지는 개인적이며 정상적인 사업 목적의 제품 사용을 제한하거나 금지하지 않으며, 이러한 사용에는 (i) 제3자에게 제품을 재배포하는 것, 또는 (ii) 제3자에게 배포하기 위해 AVC 표준을 준수하는 기술로 콘텐츠를 생성하는 것은 포함되지 않습니다.
+
+8. 최종 사용자에 대한 필수 SMARTSCREEN 통지.
+
+귀하가 위의 섹션 4(b)에 설명된 대로, SmartScreen을 비활성화하지 않는 경우, 귀하는 귀하의 소프트웨어에 Microsoft Defender SmartScreen이 포함되어 있으며, Microsoft 개인 정보 취급 방침(https://aka.ms/privacy) 및 Microsoft Edge 개인 정보 보호 백서(https://learn.microsoft.com/en-us/microsoft-edge/privacy-whitepaper#smartscreen)에 공개된 대로 해당 소프트웨어가 최종 사용자의 정보를 수집하여 Microsoft에 전송한다는 사실을 모든 사용자에게 통지해야 합니다.
+
+9. 구속력 있는 중재 및 집단 소송의 포기. 본 조항은 귀하가 미국에 거주하거나 귀하의 주 사업장 소재지 주소가 미국인 경우에 적용됩니다. 귀하와 Microsoft 간에 분쟁이 있는 경우 귀하와 Microsoft는 60일 동안 해당 분쟁을 비공식적으로 해결하려고 노력한다는 데 동의합니다. 분쟁을 해결할 수 없을 경우 귀하와 Microsoft는 ‭‬“FAA”(연방중재법안)에 따라 미국중재협회 주재 하의 구속력 있는 개별 중재에 따르며 판사 또는 배심 재판을 제기하지 않기로 하는 데 동의합니다.‭ 대신 중위중재인이 판정합니다. 집단 소송, 집단 중재, 대리인 소송 및 누군가가 대표자의 신분으로 소송을 제기하는 그 밖의 어떤 절차도 허용되지 않거나 당사자 전원의 동의 없이 개별 소송을 결합하지 않습니다. 중재 계약 전문에는 더 많은 조건이 있으며 aka.ms/arb-agreement-1에서 확인할 수 있습니다. 귀하와 Microsoft는 이 사용권 계약에 동의합니다.
+
+10. 완전 합의. 본 계약 및 Microsoft가 추가 구성 요소, 업데이트 또는 제3자 응용 프로그램에 대해 규정하는 기타 조건은 본 소프트웨어에 대한 완전 합의입니다.
+
+11. 관련 법률 및 분쟁 해결 장소. 귀하가 미국이나 캐나다에서 소프트웨어를 취득한 경우 국제사법 원칙에 관계없이 본 계약의 해석, 불이행에 대한 청구 및 기타 청구(소비자 보호, 불공정 경쟁 및 불법 행위 청구 포함)에 귀하가 거주하고 있는 주 또는 국가나 해당 기본 사업자 주소지의 법이 적용됩니다. 다른 국가에서 소프트웨어를 구입한 경우 해당 국가의 법률이 적용됩니다. 미국 연방 관할이 존재하는 경우 귀하와 Microsoft는 법원에서 심의되는 모든 분쟁에 대해 미국 워싱턴 주, 킹 카운티에 위치한 연방 법원의 전속 관할지 및 관할 법원을 따릅니다. 미국 연방 관할이 존재하지 않는 경우, 귀하와 Microsoft는 법원에서 심리되는 모든 분쟁에 대해 미국 워싱턴 주, 킹 카운티에 위치한 고등 법원의 전속 관할지 및 관할 법원을 따릅니다.
+
+12. 소비자 권리, 지역별 차이. 본 계약은 특정 법적 권리에 대해 기술하고 있습니다. 귀하는 소비자 권리를 포함하여 귀하가 거주하고 있는 주, 지방 또는 국가의 법률이 보장하는 다른 권리를 보유할 수 있습니다. Microsoft와 맺은 관계와 별개로, 또한 그러한 관계를 제외하고, 귀하가 소프트웨어를 구입한 당사자와 관련된 권리를 보유할 수도 있습니다. 귀하가 거주하고 있는 주, 지방 또는 국가의 법에서 그러한 기타 권리의 변경을 허용하지 않는 경우 본 계약은 해당 권리를 변경하지 않습니다. 예를 들어 아래 지역 중 하나에서 소프트웨어를 취득했거나 필수 국가 법이 적용되는 경우에는 다음 조항이 귀하에게 적용됩니다:
+
+a) 오스트레일리아. 귀하는 오스트레일리아 소비자보호법에 따른 법적 권리가 있으며 이 계약의 어떠한 내용도 그러한 권리에 영향을 미쳐서는 안 됩니다.
+
+b) 캐나다. 캐나다에서 이 소프트웨어를 구입한 경우, 자동 업데이트 기능을 끄고 장치를 인터넷에서 분리(하지만 인터넷에 다시 연결할 경우에는 소프트웨어가 업데이트 점검 및 설치를 다시 시작함)하거나 소프트웨어를 설치 제거하여 업데이트 받기를 중지할 수 있습니다. 제품 설명서에서는 특정 장치 또는 소프트웨어에 대한 업데이트를 끄는 방법을 명시할 수 있습니다.
+
+c) 독일 및 오스트리아.
+
+i. 품질 보증. 적법하게 라이선스가 허가된 소프트웨어는 대체로 소프트웨어에 동봉된 Microsoft 설명서에 명시된 대로 작동합니다. 그러나 Microsoft는 라이선스가 허가된 소프트웨어와 관련하여 어떠한 계약상 보증도 제공하지 않습니다.
+
+ii. 책임의 제한. 고의적 행위, 중과실, 제조물책임법을 근거로 한 청구, 그리고 사망이나 대인 또는 신체 상해가 발생할 경우 Microsoft는 성문법에 따른 법적 책임을 집니다.
+
+전항 ii.에 따라, Microsoft는 이행될 경우에는 계약의 정당한 수행을 원활하게 하고, 위반할 경우에는 본 계약의 목적을 위태롭게 하며, 이를 준수할 경우 일방 당사자가 계속해서 신뢰할 수 있는 중대한 계약상의 의무(“기본적인 의무”)를 위반한 경우 경미한 과실에 대해서만 책임을 집니다. 다른 경미한 과실을 범한 경우 Microsoft는 경미한 과실에 대한 책임을 지지 않습니다.
+
+13. 보증의 부인. 소프트웨어는 "있는 그대로(AS IS)" 라이선스가 허가됩니다. 소프트웨어 사용에 따른 위험은 귀하가 감수해야 합니다. MICROSOFT는 어떠한 명시적 보증, 보장 또는 조건도 제시하지 않습니다. 관련 법률이 허용하는 범위 내에서 MICROSOFT는 상품성, 특정 목적에의 적합성 및 비침해 등 관련된 모든 묵시적 보증을 배제합니다.
+
+14. 손해의 제한 및 배제. 위 보증의 부인에도 불구하고 MICROSOFT 및 해당 공급자로부터 손해 배상을 받을 근거가 있는 경우 직접 손해에 대해서만 최대 미화 $5.00까지 보상을 받을 수 있습니다. 결과적 손해, 이익 손실, 특별적, 간접적 또는 부수적 손해를 포함한 기타 모든 손해에 대해서는 보상을 받을 수 없습니다.
+
+이 한도는 (a) 제3자 인터넷 사이트상의 소프트웨어, 서비스, 콘텐츠(코드 포함) 또는 제3자 응용 프로그램과 관련하여 발생하는 모든 문제 및 (b) 각 경우에 관련 법률에서 허용하는 범위 내에서 계약 위반, 보증, 보장 또는 조건의 불이행, 무과실 책임, 과실 또는 기타 불법 행위 등으로 인한 청구에 적용됩니다.
+
+Microsoft가 그러한 손해의 가능성에 대해 사전에 알고 있었거나 알아야만 했던 경우에도 적용됩니다. 귀하가 거주하고 있는 주, 지방 또는 국가에서 부수적, 결과적 또는 기타 손해의 배제나 제한을 허용하지 않는 경우에는 위의 제한이나 배제가 적용되지 않을 수 있습니다.
+
+이 소프트웨어는 제3자의 자료를 통합합니다. Microsoft가 https://thirdpartysource.microsoft.com에서 특정 오픈 소스 코드를 제공하거나, 귀하가 제품 이름, 오픈 소스 구성 요소 및 버전 번호를 포함하여 미화 $5.00에 상응하는 수표 또는 우편환을 다음 주소로 보내실 수 있습니다:
+
+소스 코드 준수 팀
+
+Microsoft Corporation
+
+One Microsoft Way
+
+Redmond, WA 98052
+
+미국
+
+일체의 다른 계약 조건에도 불구하고, 귀하는 GNU Lesser General Public License에 따라 사용이 허가된 라이브러리의 변경 사항을 디버그하는 데 필요한 범위까지 이 소프트웨어에 대한 리버스 엔지니어링을 할 수 있습니다.
+
+참고: 이 소프트웨어는 캐나다 퀘벡 지역에 배포되므로 본 계약서의 아래 일부 조항은 프랑스어로 제공됩니다.
+
+Remarque: Ce logiciel étant distribué au Canada, certaines des clauses dans ce contrat sont fournies ci-dessous en français.
+
+EXONÉRATION DE GARANTIE. Le logiciel visé par une licence est offert « tel quel ». Toute utilisation de ce logiciel est à votre seule risque et péril. Microsoft n’accorde aucune autre garantie expresse. Vous pouvez bénéficier de droits additionnels en vertu du droit local sur la protection des consommateurs, que ce contrat ne peut modifier. La ou elles sont permises par le droit locale, les garanties implicites de qualité marchande, d’adéquation à un usage particulier et d’absence de contrefaçon sont exclues.
+
+LIMITATION DES DOMMAGES-INTÉRÊTS ET EXCLUSION DE RESPONSABILITÉ POUR LES DOMMAGES. Vous pouvez obtenir de Microsoft et de ses fournisseurs une indemnisation en cas de dommages directs uniquement à hauteur de 5,00 $ US. Vous ne pouvez prétendre à aucune indemnisation pour les autres dommages, y compris les dommages spéciaux, indirects ou accessoires et pertes de bénéfices.
+
+Cette limitation concerne:
+
+tout ce qui est relié au logiciel, aux services ou au contenu (y compris le code) figurant sur des sites Internet tiers ou dans des programmes tiers; et
+
+les réclamations au titre de violation de contrat ou de garantie, ou au titre de responsabilité stricte, de négligence ou d’une autre faute dans la limite autorisée par la loi en vigueur.
+
+Elle s’applique également, même si Microsoft connaissait ou devrait connaître l’éventualité d’un tel dommage. Si votre pays n’autorise pas l’exclusion ou la limitation de responsabilité pour les dommages indirects, accessoires ou de quelque nature que ce soit, il se peut que la limitation ou l’exclusion ci-dessus ne s’appliquera pas à votre égard.
+
+EFFET JURIDIQUE. Le présent contrat décrit certains droits juridiques. Vous pourriez avoir d’autres droits prévus par les lois de votre pays. Le présent contrat ne modifie pas les droits que vous confèrent les lois de votre pays si celles-ci ne le permettent pas.

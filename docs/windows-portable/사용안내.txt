@@ -1,0 +1,21 @@
+﻿픽셀캠퍼스 | Windows 11 x64 실행 안내
+
+1. ZIP 파일을 마우스 오른쪽 버튼으로 누르고 ‘모두 압축 풀기’를 선택합니다. 내 PC의 다운로드나 문서 폴더처럼 직접 쓸 수 있는 위치를 선택하세요.
+2. 아래 사용 조건을 확인한 다음, 압축을 푼 폴더에서 PixelCampus.exe를 실행합니다. 다른 사람에게 전달하거나 다른 PC로 옮길 때는 ZIP 파일 전체를 보내 주세요. 앱과 같은 폴더에 들어 있는 DLL과 하위 폴더도 실행에 필요합니다.
+3. 앱에 학교 로그인 화면이 뜨면 본인의 한림대학교 SmartLEAD 계정으로 로그인합니다. 로그인과 최신 자료 조회에는 인터넷 연결이 필요합니다.
+
+이 배포본에는 로그인 화면을 표시하는 Microsoft Edge WebView2와 필요한 Visual C++ 실행 파일이 포함되어 있습니다. Unity 에디터나 별도 런타임을 설치할 필요가 없습니다. WebView2 보안 업데이트는 새 배포본을 통해 제공되므로 최신 배포본을 사용해 주세요.
+
+사용 조건 및 개인정보 안내
+
+이 앱에 포함된 Microsoft Edge WebView2 런타임에는 동봉한 Microsoft 소프트웨어 사용 조건이 적용됩니다. 배포자와 사용자는 이 조건을 확인하고 동의하는 경우에만 런타임을 사용하거나 앱과 함께 재배포할 수 있습니다. 런타임을 사용하면 이 조건에 동의한 것으로 봅니다. 전문은 같은 폴더의 WebView2-Fixed-License.ko.txt와 WebView2-Fixed-License.en.txt에서 확인할 수 있습니다.
+
+이 앱에는 Microsoft Defender SmartScreen이 포함되어 있습니다. SmartScreen은 방문하는 사이트의 안전성 등을 확인하기 위해 사용자 정보를 수집하여 Microsoft로 전송합니다. 수집 항목과 사용 목적은 Microsoft 개인정보처리방침 및 Microsoft Edge 개인정보 보호 백서에서 확인할 수 있습니다.
+https://aka.ms/privacy
+https://learn.microsoft.com/en-us/microsoft-edge/privacy-whitepaper#smartscreen
+
+제3자 저작물
+
+• 로그인 화면에 사용한 unity-webview는 Keijiro Takahashi와 GREE, Inc.의 저작물입니다. zlib 라이선스 전문은 Licenses/UnityWebView.txt에 있습니다.
+• Pretendard 글꼴과 문서용 부분 글꼴에는 SIL Open Font License 1.1이 적용됩니다. 저작권 표기와 라이선스 전문은 Licenses/Pretendard-OFL.txt에 있습니다.
+• 캠퍼스 지도의 도로·건물·녹지 데이터는 © OpenStreetMap contributors이며 Open Database License(ODbL)로 제공됩니다. https://www.openstreetmap.org/copyright
