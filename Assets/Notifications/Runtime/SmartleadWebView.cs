@@ -89,6 +89,12 @@ namespace WebNotifications
             }
         }
         private const string NotificationPage = "https://smartlead.hallym.ac.kr/local/ubion/user/index.php";
+        private const string SchoolLoginUrl = "https://smartlead.hallym.ac.kr/login.php";
+        private enum LoginStage { Idle, Initializing, CheckingSession, OpeningLogin }
+        private LoginStage loginStage;
+        private float loginDeadline;
+        private bool triedLoginPage;
+        public bool LoginBrowserUnavailable { get; private set; }
         private WebViewObject view;
         private SmartleadCourseCubes courseCubes;
         private string nonce, currentUrl, script;
@@ -161,13 +167,33 @@ namespace WebNotifications
             var coursework = Resources.Load<TextAsset>("SmartleadCoursework");
             if (coursework != null) script += "\n" + coursework.text;
             else courseworkFailed = true;
+            InitializeLoginBrowser();
+        }
+
+        private void InitializeLoginBrowser()
+        {
+            LoginBrowserUnavailable = false;
+            triedLoginPage = false;
+            loginStage = LoginStage.Initializing;
+            loginDeadline = Time.realtimeSinceStartup + 20;
+            Status = "학교 로그인 창을 준비하고 있습니다…";
+            MessageStatus = "로그인 대기 중";
             try
             {
                 view = new GameObject("SmartLEAD Notification WebView").AddComponent<WebViewObject>();
                 view.transform.SetParent(transform);
-                view.Init(cb: Receive, err: _ => { Status = "SmartLEAD 연결 실패"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면 연결에 실패했습니다. 뒤로 돌아가 다시 열어 주세요."; },
-                    httpErr: _ => { Status = "SmartLEAD 페이지 오류"; if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면에서 오류가 발생했습니다. 학교 화면의 안내를 확인해 주세요."; },
+                view.Init(cb: Receive, err: _ => { HandleSchoolPageError("SmartLEAD 연결 실패"); if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면 연결에 실패했습니다. 뒤로 돌아가 다시 열어 주세요."; },
+                    httpErr: _ => { HandleSchoolPageError("SmartLEAD 페이지 오류"); if (assignmentSubmissionVisible) AssignmentRenderStatus = "학교 제출 화면에서 오류가 발생했습니다. 학교 화면의 안내를 확인해 주세요."; },
                     started: url => { currentUrl = url; nonce = null; HasResult = false; HasMessagesResult = false;
+                        // A redirect already opened the form. A slow page load must
+                        // not trigger another navigation while the user is typing.
+                        if (loginStage == LoginStage.CheckingSession && LoginPage(url))
+                        {
+                            triedLoginPage = true;
+                            loginStage = LoginStage.OpeningLogin;
+                            loginDeadline = Time.realtimeSinceStartup + 15;
+                            Status = "학교 로그인 화면을 여는 중…";
+                        }
                         if (assignmentSubmissionVisible) { submissionConversionPrepared = false; submissionConversion?.Dispose(); return; }
                         if (lecturePageVisible) return;
                         if (SchoolPage(url) && new Uri(url).AbsolutePath.Equals("/login/logout.php", StringComparison.OrdinalIgnoreCase))
@@ -179,27 +205,51 @@ namespace WebNotifications
                         notificationsConfirmed = false;
                         schoolResult = false; notificationPriority = 0;
                         titles.Clear(); messages.Clear();
-                        Status = IsAuthenticated ? "연결 중…" : LoginPrompt; },
-                    ld: url => { currentUrl = url; Inject(); }, androidForceDarkMode: 1);
-                ShowAuthentication();
-                // An explicit logout must also survive an editor/app restart. Discard any
-                // remaining local cookies before starting a fresh school login.
-                if (RequiresPassword)
-                {
-                    view.ClearCookies(); view.SaveCookies();
-                    view.LoadURL("https://smartlead.hallym.ac.kr/login.php");
-                }
-                else view.LoadURL(NotificationPage);
-                Status = LoginPrompt;
-                MessageStatus = "로그인 대기 중";
+                        if (loginStage == LoginStage.Idle) Status = IsAuthenticated ? "연결 중…" : LoginPrompt; },
+                    ld: url => { if (url == "about:blank") return; currentUrl = url; Inject(); }, androidForceDarkMode: 1);
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+                // On Windows Init returns after native creation. An unavailable runtime
+                // can leave an empty handle without throwing a managed exception.
+                if (!view.IsInitialized()) { FailLoginBrowser(); return; }
+#endif
                 nextRefresh = Time.unscaledTime + 120;
             }
-            catch (Exception ex)
+            catch (Exception ex) { FailLoginBrowser(ex.GetType().Name); }
+        }
+
+        private void FailLoginBrowser(string errorType = null)
+        {
+            loginStage = LoginStage.Idle;
+            LoginBrowserUnavailable = true;
+            if (view != null)
             {
-                Status = Application.platform == RuntimePlatform.Android ?
-                    "Android WebView 초기화 실패. Android System WebView 업데이트와 플러그인 포함 여부를 확인해 주세요." :
-                    "WebView 초기화 실패: " + ex.GetType().Name;
+                view.gameObject.SetActive(false);
+                Destroy(view.gameObject);
+                view = null;
             }
+            Status = "학교 로그인 창을 열지 못했습니다.";
+            Debug.LogWarning("SmartLEAD WebView initialization failed" + (errorType == null ? "." : " (" + errorType + ")."));
+        }
+
+        private void NavigateForLogin(bool openForm)
+        {
+            loginStage = openForm ? LoginStage.OpeningLogin : LoginStage.CheckingSession;
+            triedLoginPage |= openForm;
+            loginDeadline = Time.realtimeSinceStartup + 15;
+            Status = openForm ? "학교 로그인 화면을 여는 중…" : "기존 로그인 상태를 확인하고 있습니다…";
+            ShowAuthentication();
+            view.LoadURL(openForm ? SchoolLoginUrl : NotificationPage);
+        }
+
+        private void HandleSchoolPageError(string message)
+        {
+            if (loginStage == LoginStage.CheckingSession && !triedLoginPage)
+            {
+                NavigateForLogin(true);
+                return;
+            }
+            loginStage = LoginStage.Idle;
+            Status = message;
         }
 
         private void OnApplicationPause(bool paused)
@@ -283,6 +333,7 @@ namespace WebNotifications
             }
             if (!SchoolPage(currentUrl) || new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             {
+                loginStage = LoginStage.Idle;
                 if (refreshAssignmentAfterSubmission) DismissAssignmentDetail();
                 IsAuthenticated = false;
                 courseCubes?.Clear();
@@ -322,8 +373,7 @@ namespace WebNotifications
             if (returnFromLogin && (path == "/" || path == "/dashboard.php"))
             {
                 returnFromLogin = false;
-                Status = "개인 알림 화면으로 이동 중";
-                view.LoadURL(NotificationPage);
+                NavigateForLogin(false);
                 return;
             }
             nonce = Guid.NewGuid().ToString("N");
@@ -350,6 +400,19 @@ namespace WebNotifications
             if (Input.GetKeyDown(KeyCode.Escape)) { HandleMobileBack(); return; }
 #endif
             if (view == null) return;
+            if (loginStage == LoginStage.Initializing)
+            {
+                if (!view.IsInitialized())
+                {
+                    if (Time.realtimeSinceStartup >= loginDeadline) FailLoginBrowser();
+                    return;
+                }
+                if (RequiresPassword) { view.ClearCookies(); view.SaveCookies(); }
+                NavigateForLogin(RequiresPassword);
+                return;
+            }
+            if (loginStage != LoginStage.Idle && Time.realtimeSinceStartup >= loginDeadline)
+                HandleSchoolPageError("학교 응답이 지연되고 있습니다. 재접속해 주세요.");
             if (showCourseOutline && outlineRequest == null && !outlineFailed) RequestCourseOutline();
             if (outlineRequest != null && Time.unscaledTime >= outlineDeadline)
             {
@@ -571,6 +634,8 @@ namespace WebNotifications
         public void Refresh()
         {
             if (signingOut || assignmentSubmissionVisible || lecturePageVisible) return;
+            if (LoginBrowserUnavailable) { InitializeLoginBrowser(); return; }
+            if (loginStage == LoginStage.Initializing) return;
             if (view == null) return;
             if (Application.isMobilePlatform && Application.internetReachability == NetworkReachability.NotReachable)
             {
@@ -578,14 +643,13 @@ namespace WebNotifications
                 Status = "인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
                 return;
             }
-            // A false local flag can coexist with valid school cookies after an editor restart.
-            // Visiting login directly then opens the school's "already logged in" dialog.
+            // Startup probes existing cookies. An explicit retry from the signed-out
+            // screen opens the form even when the protected-page probe was silent.
             if (!IsAuthenticated || !SchoolPage(currentUrl) ||
                 new Uri(currentUrl).AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             {
                 accountPagePinned = false;
-                Status = "기존 로그인 상태를 확인하고 있습니다…";
-                view.LoadURL(NotificationPage);
+                NavigateForLogin(!IsAuthenticated);
             }
             else view.Reload();
         }
@@ -617,7 +681,7 @@ namespace WebNotifications
                 {
                     // The school already has a session. Verify it on a protected page;
                     // never automatically log out a successful SSO callback.
-                    view?.LoadURL(NotificationPage);
+                    NavigateForLogin(false);
                     return;
                 }
                 PlayerPrefs.SetInt(RememberIdKey, data.remember ? 1 : 0);
@@ -681,6 +745,8 @@ namespace WebNotifications
                 PlayerPrefs.DeleteKey(RequirePasswordKey); PlayerPrefs.Save();
                 loginMessagePages.Clear();
                 IsAuthenticated = true;
+                loginStage = LoginStage.Idle;
+                triedLoginPage = false;
                 // Commit the ID only after the school confirms authentication.
                 if (!string.IsNullOrEmpty(pendingUsername) && PlayerPrefs.GetInt(RememberIdKey, 1) == 1)
                 {
@@ -719,6 +785,11 @@ namespace WebNotifications
                 ShowAuthentication();
                 Status = LoginPrompt;
                 MessageStatus = "로그인 대기 중";
+                if (SchoolPage(currentUrl) && !LoginPage(currentUrl))
+                {
+                    if (!triedLoginPage) NavigateForLogin(true);
+                    else HandleSchoolPageError("학교 세션을 확인하지 못했습니다. 재접속해 주세요.");
+                }
                 return;
             }
             if (data.kind == "api_status") return;

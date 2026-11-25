@@ -292,6 +292,22 @@ namespace WebNotifications
                 if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "뒤로", appButton)) school.CloseSchoolPage();
             }
             else if (GUI.Button(new Rect(right - buttonWidth, buttonY, buttonWidth, buttonHeight), "재접속", appButton)) school.Refresh();
+            if (school.LoginBrowserUnavailable)
+            {
+                CampusTheme.Fill(contentArea, CampusTheme.Paper);
+                GUILayout.BeginArea(new Rect(contentArea.x + padding, contentArea.y + padding,
+                    contentArea.width - 2 * padding, contentArea.height - 2 * padding));
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+                GUILayout.Label("Microsoft Edge WebView2 Runtime 설치 상태를 확인한 뒤 재접속을 눌러 주세요.", CampusTheme.Body);
+                if (CampusTheme.Action("WebView2 공식 다운로드", CampusTheme.Secondary))
+                    Application.OpenURL("https://developer.microsoft.com/microsoft-edge/webview2/");
+#elif UNITY_ANDROID && !UNITY_EDITOR
+                GUILayout.Label("Android System WebView를 업데이트한 뒤 재접속을 눌러 주세요.", CampusTheme.Body);
+#else
+                GUILayout.Label("학교 로그인은 Windows x64 또는 Android에서 사용할 수 있습니다.", CampusTheme.Body);
+#endif
+                GUILayout.EndArea();
+            }
         }
 
         private void DrawCampusPanel(SmartleadWebView school)
